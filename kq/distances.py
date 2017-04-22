@@ -110,6 +110,21 @@ class SorensenDistance(DistanceBase):
     def name(self):
         return 'sorensen'
 
+class WordsDistance(DistanceBase):
+    def dist_fn(self, xs, ys):
+        return abs(len(xs) - len(ys))
+
+    @property
+    def name(self):
+        return 'word_dist'
+
+class CharsDistance(DistanceBase):
+    def dist_fn(self, xs, ys):
+        return abs(sum((len(x) for x in xs)) - sum((len(x) for y in ys)))
+
+    @property
+    def name(self):
+        return 'char_dist'
 
 class AllDistances:
     @staticmethod
@@ -118,6 +133,8 @@ class AllDistances:
         yield LevenshteinDistance1()
         yield LevenshteinDistance2()
         yield SorensenDistance()
+        yield WordsDistance()
+        yield CharsDistance()
 
     def load(self):
         all_train, all_merge, all_valid = [], [], []
