@@ -13,7 +13,7 @@ from kq import dataset, shared_words, distances
 
 
 class SVMData(luigi.Task):
-    data_subset = None  # train, test or valid
+    data_subset = None  # train, test, merge or valid
     data_source = shared_words.WordVectors()
     max_size = 100000
 
@@ -26,6 +26,8 @@ class SVMData(luigi.Task):
 
     def complete(self):
         if self.data_subset == 'test':
+            if not os.path.exists('cache/svm_data/test_0.svm'):
+                return False
             test_size = dataset.Dataset().load_test().shape[0]
             target_ixs = self.test_target_indexes(test_size)
             for target_ix in target_ixs:
@@ -36,13 +38,18 @@ class SVMData(luigi.Task):
             return os.path.exists('cache/svm_data/%s.svm' % self.data_subset)
     
     def run(self):
-        assert self.data_subset in {'train', 'test', 'valid'}
+        assert self.data_subset in {'train', 'test', 'merge', 'valid'}
         if self.data_subset == 'train':
             vecs = self.data_source.load()[0]
             qvecs = shared_words.QuestionVector().load()[0]
             dvecs = distances.AllDistances().load()[0]
             labels = dataset.Dataset().load()[0].is_duplicate.values
         elif self.data_subset == 'valid':
+            vecs = self.data_source.load()[2]
+            qvecs = shared_words.QuestionVector().load()[2]
+            dvecs = distances.AllDistances().load()[2]
+            labels = dataset.Dataset().load()[2].is_duplicate.values
+        elif self.data_subset == 'merge':
             vecs = self.data_source.load()[1]
             qvecs = shared_words.QuestionVector().load()[1]
             dvecs = distances.AllDistances().load()[1]
@@ -95,6 +102,8 @@ class TrainSVMData(SVMData):
 class ValidSVMData(SVMData):
     data_subset = 'valid'
 
+class MergeSVMData(SVMData):
+    data_subset = 'valid'
 
 class TestSVMData(SVMData):
     data_subset = 'test'

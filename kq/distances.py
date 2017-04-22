@@ -34,7 +34,7 @@ class DistanceBase(luigi.Task):
         merge_dists = []
         for _, row in tqdm(valid.iterrows(), desc='Merge distance %s' % self.name, total=valid.shape[0]):
             merge_dists.append(self.dist_fn(row.question1, row.question2))
-            merge_dists = np.asarray(merge_dists)
+        merge_dists = np.asarray(merge_dists)
 
         valid_dists = []
         for _, row in tqdm(valid.iterrows(), desc='Valid distance %s' % self.name, total=valid.shape[0]):
@@ -71,8 +71,6 @@ class DistanceBase(luigi.Task):
 
 class JaccardDistance(DistanceBase):
     def dist_fn(self, xs, ys):
-        xs = [tok.lemma_ for tok in En(xs) if not tok.is_stop]
-        ys = [tok.lemma_ for tok in En(ys) if not tok.is_stop]
         try:
             return distance.jaccard(xs, ys)
         except ZeroDivisionError:
@@ -85,8 +83,6 @@ class JaccardDistance(DistanceBase):
 
 class LevenshteinDistance1(DistanceBase):
     def dist_fn(self, xs, ys):
-        xs = [tok.lemma_ for tok in En(xs) if not tok.is_stop]
-        ys = [tok.lemma_ for tok in En(ys) if not tok.is_stop]
         return distance.nlevenshtein(xs, ys, method=1)
 
     @property
@@ -96,8 +92,6 @@ class LevenshteinDistance1(DistanceBase):
 
 class LevenshteinDistance2(DistanceBase):
     def dist_fn(self, xs, ys):
-        xs = [tok.lemma_ for tok in En(xs) if not tok.is_stop]
-        ys = [tok.lemma_ for tok in En(ys) if not tok.is_stop]
         return distance.nlevenshtein(xs, ys, method=2)
 
     @property
@@ -107,8 +101,6 @@ class LevenshteinDistance2(DistanceBase):
 
 class SorensenDistance(DistanceBase):
     def dist_fn(self, xs, ys):
-        xs = [tok.lemma_ for tok in En(xs) if not tok.is_stop]
-        ys = [tok.lemma_ for tok in En(ys) if not tok.is_stop]
         try:
             return distance.sorensen(xs, ys)
         except ZeroDivisionError:

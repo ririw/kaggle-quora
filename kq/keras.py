@@ -1,18 +1,12 @@
 import luigi
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas
 import spacy.en
-from sklearn import metrics
-from torch.autograd import Variable
-from tqdm import tqdm
 import keras
 
-from kq import rwa, utils
 from kq.dataset import Dataset
 from kq.shared_words import Vocab
 
-
+English = None
 class QuestionReaderTask(luigi.Task):
     max_words = 32
 
@@ -23,28 +17,28 @@ class QuestionReaderTask(luigi.Task):
     def output(self):
         return luigi.LocalTarget('./cache/classifier_pred.csv.gz')
 
-    def vectorize(self, words, English):
+    def vectorize(self, words):
+        global English
+        if English is None:
+            English = spacy.en.English()
+
         res = np.zeros([self.max_words, 300])
-        for ix, tok in enumerate(English(words)):
+        for ix, tok in enumerate(English(' '.join(words))):
             if ix >= self.max_words:
                 break
             res[ix, :] = tok.vector
         return res[:, None, :]
 
-    def make_data_vecs(self, frame, English):
+    def make_data_vecs(self, frame):
         while True:
             samp = frame.sample(64)
-            X1 = np.concatenate(samp.question1.apply(lambda v: self.vectorize(v, English)).values, 1)
-            X2 = np.concatenate(samp.question2.apply(lambda v: self.vectorize(v, English)).values, 1)
-            # Sneaky testing
-            # X1[7, :, 0] = samp.is_duplicate
-            #X = np.concatenate([X1, X2], 0).astype(np.float32)
+            X1 = np.concatenate(samp.question1.apply(self.vectorize).values, 1)
+            X2 = np.concatenate(samp.question2.apply(self.vectorize).values, 1)
             y = samp.is_duplicate.values.astype(np.float32)
 
             yield [X1.transpose(1, 0, 2), X2.transpose(1, 0, 2)], y
 
     def run(self):
-        English = spacy.en.English()
         train, valid = Dataset().load()
 
         in1 = keras.layers.Input([self.max_words, 300])
@@ -61,5 +55,6 @@ class QuestionReaderTask(luigi.Task):
         model = keras.models.Model([in1, in2], l2)
         model.compile('nadam', 'binary_crossentropy')
 
-        model.fit_generator(self.make_data_vecs(train, English), 128, epochs=1000,
-                            validation_data=self.make_data_vecs(valid, English), validation_steps=32)
+        model.fit_generator(
+            self.make_data_vecs(train), 128, epochs=1000,
+            validation_data=self.make_data_vecs(valid), validation_steps=32)

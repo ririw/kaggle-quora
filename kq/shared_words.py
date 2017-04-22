@@ -17,18 +17,9 @@ from kq import core, dataset
 En = spacy.en.English()
 
 
-def extract_words(sent):
-    res = []
-    for tok in En(sent):
-        if not tok.is_alpha or tok.is_stop:
-            continue
-        res.append(tok.lemma_)
-    return res
-
-
 def vectorize_sent(sent, word_ix_map, max_ix):
     vec = np.zeros(max_ix + 1)
-    for tok in extract_words(sent):
+    for tok in sent:
         if tok in word_ix_map:
             vec[word_ix_map[tok]] += 1
     return vec
@@ -42,19 +33,21 @@ class Vocab(luigi.Task):
         return luigi.LocalTarget('./cache/vocab.msg')
 
     def run(self):
-        train_data, _ = dataset.Dataset().load()
+        train_data, _, _ = dataset.Dataset().load()
         vocab_count = Counter()
         for sent in tqdm.tqdm(train_data.question1,
                               desc='Counting questions one',
                               total=train_data.shape[0]):
-            for tok in extract_words(sent):
-                vocab_count[tok] += 1
+            for tok in sent:
+                if tok.is_alpha and not tok.is_stop:
+                    vocab_count[tok] += 1
 
         for sent in tqdm.tqdm(train_data.question2,
                               desc='Counting questions two',
                               total=train_data.shape[0]):
             for tok in extract_words(sent):
-                vocab_count[tok] += 1
+                if tok.is_alpha and not tok.is_stop:
+                    vocab_count[tok] += 1
 
         vocab_counts = pandas.Series(vocab_count)
         self.output().makedirs()
@@ -225,118 +218,6 @@ def load_sparse_csr(filename):
         loader['indptr']), shape=loader['shape'])
 
 
-class SmearedWordVectors(luigi.Task):
-    def requires(self):
-        yield Vocab()
-        yield WordVectors()
-
-    def output(self):
-        return luigi.LocalTarget('./cache/smeared/done')
-
-    def load(self):
-        assert self.complete()
-        train = load_sparse_csr('./cache/smeared/train.npz')
-        valid = load_sparse_csr('./cache/smeared/valid.npz')
-        return train, valid
-
-    def load_test(self):
-        assert self.complete()
-        return load_sparse_csr('./cache/smeared/test.npz')
-
-    def run(self):
-        self.output().makedirs()
-        try:
-            mat = load_sparse_csr('cache/smeared/mat.npz')
-        except FileNotFoundError:
-            mat = self.word_matrix()
-            save_sparse_csr('cache/smeared/mat.npz', mat)
-        train_vecs, valid_vecs = WordVectors().load()
-        half_width = train_vecs.shape[1] / 2
-        print('Smearing train')
-        print(train_vecs.shape)
-        print(train_vecs[:, :half_width].shape)
-        print(mat.shape)
-        smear_train_a = train_vecs[:, :half_width] * mat
-        smear_train_b = train_vecs[:, half_width:] * mat
-        smear_train = sparse.hstack([smear_train_a, smear_train_b]).tocsr()
-        print('Writing train')
-        save_sparse_csr('./cache/smeared/train.npz', smear_train)
-        del smear_train_b, smear_train_a, smear_train, train_vecs
-
-        print('Smearing valid')
-        smear_valid_a = valid_vecs[:, :half_width] * mat
-        smear_valid_b = valid_vecs[:, half_width:] * mat
-        smear_valid = sparse.hstack([smear_valid_a, smear_valid_b]).tocsr()
-        print('Writing valid')
-        save_sparse_csr('./cache/smeared/valid.npz', smear_valid)
-        del smear_valid, smear_valid_a, smear_valid_b, valid_vecs
-
-        print('Smearing test')
-        test_vecs = WordVectors().load_test()
-        smear_test_a = test_vecs[:, :half_width] * mat
-        smear_test_b = test_vecs[:, half_width:] * mat
-        smear_test = sparse.hstack([smear_test_a, smear_test_b]).tocsr()
-        print('Finished smearing test, I\'ll bet it took ages, but now we\'re writing it out.')
-        save_sparse_csr('./cache/smeared/test.npz', smear_test)
-        with self.output().open('w'):
-            # Boop!
-            pass
-
-    def word_matrix(self):
-        print('Making smear matrix...')
-        vocab = Vocab().load_vocab()
-        # return sparse.csr_matrix(np.eye(vocab.shape[0]+1, vocab.shape[0]+1))
-        ix_vocab = vocab.reset_index().set_index('word_id', drop=True)
-        glove = GloveInterface()
-
-        word_vecs = []
-        unknown_ix = set()
-        j = 0
-        for word, ix in tqdm.tqdm(zip(vocab.index, vocab.word_id), desc='computing vectors', total=vocab.shape[0]):
-            assert j == ix - 1, '%d -- %d' % (j, ix)
-            j += 1
-            if word in glove.words:
-                word_vecs.append(glove[word])
-            else:
-                word_vecs.append(np.zeros(50))
-                unknown_ix.add(ix)
-
-        X = np.vstack(word_vecs)
-
-        print('Computing kd tree')
-        tree = neighbors.KDTree(X)
-        print('Done!')
-        smear_matrix = np.zeros([X.shape[0] + 1, X.shape[0] + 1])
-        for word_tree_ix in tqdm.tqdm(range(X.shape[0])):
-            word_vocab_ix = word_tree_ix - 1
-            if word_vocab_ix not in unknown_ix:
-                closest = tree.query(X[word_tree_ix:word_tree_ix + 1], k=3, return_distance=False)[0]
-                if np.random.uniform() < 0.001:
-                    print(ix_vocab.ix[closest + 1])
-                smear_matrix[word_vocab_ix, closest + 1] = 0.2
-            smear_matrix[word_vocab_ix, word_vocab_ix] = 1
-        return sparse.csr_matrix(smear_matrix)
-
-
-class GloveInterface:
-    def __init__(self):
-        words = {}
-        with open('/Users/richardweiss/Datasets/glove.6B.50d.txt') as f:
-            for line in f:
-                items = line.split(' ')
-                word = items[0]
-                nums = np.array([float(v) for v in items[1:]])
-                assert len(nums) == 50
-                words[word] = nums
-        self.words = words
-
-    def __getitem__(self, item):
-        return self.words[item]
-
-    def get(self, item, default=None):
-        return self.words.get(item, default)
-
-
 class QuestionVector(luigi.Task):
     def requires(self):
         return dataset.Dataset()
@@ -349,13 +230,20 @@ class QuestionVector(luigi.Task):
         import coloredlogs
         coloredlogs.install(level=logging.INFO)
 
-        train, valid = dataset.Dataset().load()
+        train, merge, valid = dataset.Dataset().load()
         logging.info('Vectorizing: train/q1')
         train_vecs1 = np.vstack(train.question1.progress_apply(lambda q: En(q).vector).values)
         logging.info('Vectorizing: train/q2')
         train_vecs2 = np.vstack(train.question2.progress_apply(lambda q: En(q).vector).values)
         train_vecs = np.concatenate([train_vecs1, train_vecs2], 1)
         del train, train_vecs1, train_vecs2
+
+        logging.info('Vectorizing: merge/q1')
+        merge_vecs1 = np.vstack(merge.question1.progress_apply(lambda q: En(q).vector).values)
+        logging.info('Vectorizing: train/q2')
+        merge_vecs2 = np.vstack(merge.question2.progress_apply(lambda q: En(q).vector).values)
+        merge_vecs = np.concatenate([merge_vecs1, merge_vecs2], 1)
+        del merge, merge_vecs1, merge_vecs2
 
         logging.info('Vectorizing: valid/q1')
         valid_vecs1 = np.vstack(valid.question1.progress_apply(lambda q: En(q).vector).values)
@@ -372,14 +260,15 @@ class QuestionVector(luigi.Task):
 
         tmpfile = tempfile.mktemp()
         with open(tmpfile, 'wb') as f:
-            np.savez(f, train_vecs=train_vecs, valid_vecs=valid_vecs, test_vecs=test_vecs)
+            np.savez(f, train_vecs=train_vecs, merge_vecs=merge_vecs,
+                     valid_vecs=valid_vecs, test_vecs=test_vecs)
         self.output().makedirs()
         os.rename(tmpfile, self.output().path)
 
     def load(self):
         assert self.complete()
         data = np.load(self.output().path, mmap_mode='r')
-        return data['train_vecs'], data['valid_vecs']
+        return data['train_vecs'], data['merge_vecs'], data['valid_vecs']
 
     def load_test(self):
         assert self.complete()

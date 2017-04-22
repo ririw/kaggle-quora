@@ -10,11 +10,16 @@ import numpy as np
 import pandas
 import re
 
+import spacy
 from nltk import SnowballStemmer
 from nltk.corpus import stopwords
 
+English = None
 
 def clean_text(text):
+    global English
+    if English is None:
+        English = spacy.en.English()
     text = re.sub(r"[^A-Za-z0-9^,!.\/'+-=]", " ", text)
     text = re.sub(r"what's", "what is ", text)
     text = re.sub(r"\'s", " ", text)
@@ -44,15 +49,15 @@ def clean_text(text):
     text = re.sub(r"e - mail", "email", text)
     text = re.sub(r"j k", "jk", text)
     text = re.sub(r"\s{2,}", " ", text)
-    return text
+    return [w.lemma_ for w in English(text)]
 
 
 class Dataset(luigi.Task):
     def output(self):
-        return luigi.LocalTarget('./cache/dataset-done-%d' % self.seed)
+        return luigi.LocalTarget('./cache/dataset-done')
 
     def run(self):
-        kaggle_train_data = pandas.read_csv(os.path.expanduser('~/Datasets/Kaggle-Quora/train.csv'))
+        kaggle_train_data = pandas.read_csv(os.path.expanduser('~/Datasets/Kaggle-Quora/train.csv')).drop('id', 1)
         num_pos = kaggle_train_data.is_duplicate.sum()
         num_neg = kaggle_train_data.shape[0] - kaggle_train_data.is_duplicate.sum()
         x = (num_pos - (0.165 * (num_pos + num_neg))) / 0.165
@@ -60,17 +65,27 @@ class Dataset(luigi.Task):
         # Pull in an extra x rows from the data,
         # then shuffle with the sample call
         # then reset the index, dropping the old
-        resampled_data = kaggle_train_data.query('is_duplicate == 0').sample(x, replace=True)
-        kaggle_train_data = pandas.concat([kaggle_train_data, resampled_data]) \
-            .sample(frac=1.) \
-            .reset_index(drop=True)
-        assert 0.15 < (kaggle_train_data.is_duplicate.mean()) < 0.17
+        if 'dont' == 'resample':
+            p1 = np.random.permutation(kaggle_train_data.shape[0])
+            p2 = np.random.permutation(kaggle_train_data.shape[0])
+            resampled_data = pandas.DataFrame({
+                'qid1': kaggle_train_data.iloc[p1].qid1,
+                'question1': kaggle_train_data.iloc[p1].question1,
+                'qid2': kaggle_train_data.iloc[p2].qid2,
+                'question2': kaggle_train_data.iloc[p1].question2,
+                'is_duplicate': np.zeros(kaggle_train_data.shape[0])
+            }).sample(x, replace=True)
+            #resampled_data = kaggle_train_data.query('is_duplicate == 0').sample(x, replace=True)
+            kaggle_train_data = pandas.concat([kaggle_train_data, resampled_data]) \
+                .sample(frac=1.) \
+                .reset_index(drop=True)
+            assert 0.15 < (kaggle_train_data.is_duplicate.mean()) < 0.17, str(kaggle_train_data.is_duplicate.mean())
 
-        kaggle_train_data['question1'] = kaggle_train_data['question1'].fillna('')
-        kaggle_train_data['question2'] = kaggle_train_data['question2'].fillna('')
+        kaggle_train_data['question1'] = kaggle_train_data['question1'].fillna('').apply(clean_text)
+        kaggle_train_data['question2'] = kaggle_train_data['question2'].fillna('').apply(clean_text)
         # Make sure the valid set contains _zero_ question from the train set.
-        a = kaggle_train_data.qid1.apply(lambda v: mmh3.hash(str(v).encode('ascii'), 2213))
-        b = kaggle_train_data.qid2.apply(lambda v: mmh3.hash(str(v).encode('ascii'), 6663))
+        a = kaggle_train_data.qid1.apply(lambda v: mmh3.hash(str(v).encode('ascii'), 2213) % 8)
+        b = kaggle_train_data.qid2.apply(lambda v: mmh3.hash(str(v).encode('ascii'), 6663) % 8)
         train_data = kaggle_train_data[(a > 1) & (b > 1)].reset_index(drop=True)
         merge_data = kaggle_train_data[(a == 0) & (b == 0)].reset_index(drop=True)
         valid_data = kaggle_train_data[(a == 1) & (b == 1)].reset_index(drop=True)
