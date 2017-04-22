@@ -61,6 +61,7 @@ class MaxoutTask(luigi.Task):
     max_words = 64
     epochs = 10
     batch_size = 32
+    weights = np.asarray([1.309028344, 0.472001959], np.float32)
 
     def requires(self):
         yield Dataset()
@@ -80,14 +81,18 @@ class MaxoutTask(luigi.Task):
             q = dataset.iloc[ixs]
             X1 = q.question1.apply(vectorize).values
             X2 = q.question2.apply(vectorize).values
-            y = q.is_duplicate.values.astype(np.float32)
+            y = q.is_duplicate.values
+            weight = np.zeros(self.batch_size, dtype=np.float32)
+            for i, v in enumerate(y):
+                weight[i] = self.weights[v]
 
             X1 = np.concatenate(X1, 0).astype(np.float32)
             X2 = np.concatenate(X2, 0).astype(np.float32)
 
             yield Variable(torch.from_numpy(X1), requires_grad=requires_grad), \
                   Variable(torch.from_numpy(X2), requires_grad=requires_grad), \
-                  Variable(torch.from_numpy(y))
+                  Variable(torch.from_numpy(y.astype(np.float32))), \
+                  torch.from_numpy(weight)
         raise StopIteration()
 
     def run(self):
@@ -99,19 +104,19 @@ class MaxoutTask(luigi.Task):
         test_loss = 0
 
         for i in range(self.epochs):
-            bar = tqdm(itertools.islice(self.dataset_iterator(valid, True), 1024), total=1024)
-            for (v1, v2, y) in bar:
+            bar = tqdm(itertools.islice(self.dataset_iterator(train, True), 1024), total=1024)
+            for (v1, v2, y, w) in bar:
                 opt.zero_grad()
                 pred = maxout(v1, v2)
-                loss = torch.nn.BCELoss()(pred, y)
+                loss = torch.nn.BCELoss(weight=w)(pred, y)
                 bar.set_description('%f -- %f' % (loss.data.numpy()[0], test_loss))
                 loss.backward()
                 opt.step()
-            bar = tqdm(itertools.islice(self.dataset_iterator(valid, True), 32), total=32)
+            bar = tqdm(itertools.islice(self.dataset_iterator(valid, False), 32), total=32)
             losses = []
-            for (v1, v2, y) in bar:
+            for (v1, v2, y, w) in bar:
                 pred = maxout(v1, v2)
-                loss = torch.nn.BCELoss()(pred, y)
+                loss = torch.nn.BCELoss(weight=w)(pred, y)
                 losses.append(loss.data.numpy()[0])
             test_loss = np.mean(losses)
 

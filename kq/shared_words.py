@@ -8,13 +8,11 @@ import luigi
 import numpy as np
 import pandas
 import spacy.en
-from scipy import sparse, io
+from scipy import sparse, io, spatial
 from sklearn import neighbors
 import tqdm
 
 from kq import core, dataset
-
-En = spacy.en.English()
 
 
 def vectorize_sent(sent, word_ix_map, max_ix):
@@ -33,19 +31,20 @@ class Vocab(luigi.Task):
         return luigi.LocalTarget('./cache/vocab.msg')
 
     def run(self):
+        En = spacy.en.English()
         train_data, _, _ = dataset.Dataset().load()
         vocab_count = Counter()
         for sent in tqdm.tqdm(train_data.question1,
                               desc='Counting questions one',
                               total=train_data.shape[0]):
-            for tok in sent:
+            for tok in En(' '.join(sent)):
                 if tok.is_alpha and not tok.is_stop:
                     vocab_count[tok] += 1
 
         for sent in tqdm.tqdm(train_data.question2,
                               desc='Counting questions two',
                               total=train_data.shape[0]):
-            for tok in extract_words(sent):
+            for tok in En(' '.join(sent)):
                 if tok.is_alpha and not tok.is_stop:
                     vocab_count[tok] += 1
 
@@ -225,37 +224,55 @@ class QuestionVector(luigi.Task):
     def output(self):
         return luigi.LocalTarget('./cache/question_vec.npz')
 
+    def merge_vecs(self, v1, v2):
+        distances = [
+            spatial.distance.euclidean,
+            spatial.distance.sqeuclidean,
+            spatial.distance.cityblock,
+            spatial.distance.cosine,
+            spatial.distance.correlation,
+            spatial.distance.chebyshev,
+            spatial.distance.canberra,
+            spatial.distance.braycurtis]
+        distance_vecs = [[d(a, b) for a, b in zip(v1, v2)] for d in distances]
+        distance_mat = np.asarray(distance_vecs).T
+        return np.concatenate([v1, v2, distance_mat], 1)
+
+
     def run(self):
+        English = spacy.en.English()
         tqdm.tqdm.pandas(tqdm.tqdm)
         import coloredlogs
         coloredlogs.install(level=logging.INFO)
 
         train, merge, valid = dataset.Dataset().load()
         logging.info('Vectorizing: train/q1')
-        train_vecs1 = np.vstack(train.question1.progress_apply(lambda q: En(q).vector).values)
+        train_vecs1 = np.vstack(train.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
         logging.info('Vectorizing: train/q2')
-        train_vecs2 = np.vstack(train.question2.progress_apply(lambda q: En(q).vector).values)
-        train_vecs = np.concatenate([train_vecs1, train_vecs2], 1)
+        train_vecs2 = np.vstack(train.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        train_vecs = self.merge_vecs(train_vecs1, train_vecs2)
         del train, train_vecs1, train_vecs2
 
         logging.info('Vectorizing: merge/q1')
-        merge_vecs1 = np.vstack(merge.question1.progress_apply(lambda q: En(q).vector).values)
-        logging.info('Vectorizing: train/q2')
-        merge_vecs2 = np.vstack(merge.question2.progress_apply(lambda q: En(q).vector).values)
-        merge_vecs = np.concatenate([merge_vecs1, merge_vecs2], 1)
+        merge_vecs1 = np.vstack(merge.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        logging.info('Vectorizing: merge/q2')
+        merge_vecs2 = np.vstack(merge.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        merge_vecs = self.merge_vecs(merge_vecs1, merge_vecs2)
         del merge, merge_vecs1, merge_vecs2
 
         logging.info('Vectorizing: valid/q1')
-        valid_vecs1 = np.vstack(valid.question1.progress_apply(lambda q: En(q).vector).values)
+        valid_vecs1 = np.vstack(valid.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
         logging.info('Vectorizing: valid/q2')
-        valid_vecs2 = np.vstack(valid.question2.progress_apply(lambda q: En(q).vector).values)
-        valid_vecs = np.concatenate([valid_vecs1, valid_vecs2], 1)
+        valid_vecs2 = np.vstack(valid.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        valid_vecs = self.merge_vecs(valid_vecs1, valid_vecs2)
         del valid, valid_vecs1, valid_vecs2
 
         test = dataset.Dataset().load_test()
-        test_vecs1 = np.vstack(test.question1.progress_apply(lambda q: En(q).vector).values)
-        test_vecs2 = np.vstack(test.question2.progress_apply(lambda q: En(q).vector).values)
-        test_vecs = np.concatenate([test_vecs1, test_vecs2], 1)
+        logging.info('Vectorizing: test/q2')
+        test_vecs1 = np.vstack(test.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        logging.info('Vectorizing: test/q2')
+        test_vecs2 = np.vstack(test.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        test_vecs = self.merge_vecs(test_vecs1, test_vecs2)
         del test, test_vecs1, test_vecs2
 
         tmpfile = tempfile.mktemp()

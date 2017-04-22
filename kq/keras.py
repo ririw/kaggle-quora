@@ -11,7 +11,6 @@ class QuestionReaderTask(luigi.Task):
     max_words = 32
 
     def requires(self):
-        yield Vocab()
         yield Dataset()
 
     def output(self):
@@ -39,20 +38,30 @@ class QuestionReaderTask(luigi.Task):
             yield [X1.transpose(1, 0, 2), X2.transpose(1, 0, 2)], y
 
     def run(self):
-        train, valid = Dataset().load()
+        train, merge, valid = Dataset().load()
 
         in1 = keras.layers.Input([self.max_words, 300])
         in2 = keras.layers.Input([self.max_words, 300])
-        lstm = keras.layers.LSTM(128, dropout=0.25, recurrent_dropout=0.25)
+        lstm = keras.layers.LSTM(300, dropout=0.25, recurrent_dropout=0.25)
         v1 = lstm(in1)
         v2 = lstm(in2)
         paired = keras.layers.BatchNormalization()(
             keras.layers.Dropout(0.25)(keras.layers.merge([v1, v2], mode='concat')))
 
-        l1 = keras.layers.BatchNormalization()(
-            keras.layers.Dropout(0.25)(keras.layers.Dense(64, activation='relu')(paired)))
-        l2 = keras.layers.Dense(1, activation='sigmoid')(l1)
-        model = keras.models.Model([in1, in2], l2)
+        linmodel = keras.models.Sequential()
+        linmodel.add(keras.layers.Dense(300, input_shape=[600]))
+        linmodel.add(keras.layers.PReLU())
+        linmodel.add(keras.layers.Dropout(0.25))
+        linmodel.add(keras.layers.BatchNormalization())
+        linmodel.add(keras.layers.Dense(150))
+        linmodel.add(keras.layers.PReLU())
+        linmodel.add(keras.layers.Dropout(0.25))
+        linmodel.add(keras.layers.BatchNormalization())
+        linmodel.add(keras.layers.Dense(1, activation='sigmoid'))
+
+        l = linmodel(paired)
+
+        model = keras.models.Model([in1, in2], l)
         model.compile('nadam', 'binary_crossentropy')
 
         model.fit_generator(
