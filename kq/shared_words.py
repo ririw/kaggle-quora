@@ -34,19 +34,19 @@ class Vocab(luigi.Task):
         En = spacy.en.English()
         train_data, _, _ = dataset.Dataset().load()
         vocab_count = Counter()
-        for sent in tqdm.tqdm(train_data.question1,
+        for sent in tqdm.tqdm(train_data.question1_raw,
                               desc='Counting questions one',
                               total=train_data.shape[0]):
-            for tok in En(' '.join(sent)):
+            for tok in En(sent):
                 if tok.is_alpha and not tok.is_stop:
-                    vocab_count[tok] += 1
+                    vocab_count[tok.lower_] += 1
 
-        for sent in tqdm.tqdm(train_data.question2,
+        for sent in tqdm.tqdm(train_data.question2_raw,
                               desc='Counting questions two',
                               total=train_data.shape[0]):
-            for tok in En(' '.join(sent)):
+            for tok in En(sent):
                 if tok.is_alpha and not tok.is_stop:
-                    vocab_count[tok] += 1
+                    vocab_count[tok.lower_] += 1
 
         vocab_counts = pandas.Series(vocab_count)
         self.output().makedirs()
@@ -71,9 +71,10 @@ class WordVectors(luigi.Task):
         return luigi.LocalTarget('./cache/word_vectors.zip')
 
     def run(self):
-        train, valid = dataset.Dataset().load()
+        train, merge, valid = dataset.Dataset().load()
         vocab_frame = Vocab().load_vocab()
         train_mat = self.vectorize_mat(train, vocab_frame, ' -- train data')
+        merge_mat = self.vectorize_mat(merge, vocab_frame, ' -- merge data')
         valid_mat = self.vectorize_mat(valid, vocab_frame, ' -- valid data')
         self.output().makedirs()
         res_tf = tempfile.NamedTemporaryFile(delete=False)
@@ -81,9 +82,11 @@ class WordVectors(luigi.Task):
             with ZipFile(res_tf, mode='w') as zf:
                 with zf.open('train', 'w') as f:
                     io.mmwrite(f, train_mat)
+                with zf.open('merge', 'w') as f:
+                    io.mmwrite(f, merge_mat)
                 with zf.open('valid', 'w') as f:
                     io.mmwrite(f, valid_mat)
-                del train, train_mat, valid, valid_mat
+                del train, train_mat, valid, valid_mat, merge, merge_mat
                 test = dataset.Dataset().load_test()
                 test_mat = self.vectorize_mat(test, vocab_frame, ' -- test data')
                 with zf.open('test', 'w') as f:
@@ -104,7 +107,7 @@ class WordVectors(luigi.Task):
         cs = []
 
         for ix, (s1, s2) in tqdm.tqdm(
-                enumerate(zip(data.question1, data.question2)), total=data.shape[0],
+                enumerate(zip(data.question1_tokens, data.question2_tokens)), total=data.shape[0],
                 desc='Vectorizing matrix' + vec_note):
             vec = np.zeros(mat_size * 4)
             v1 = vectorize_sent(s1, vocab_dict, vocab_max_id)
@@ -123,17 +126,19 @@ class WordVectors(luigi.Task):
         vs = np.concatenate(vs)
         cs = np.concatenate(cs)
         rs = np.concatenate(rs)
-        res = sparse.coo_matrix((vs, (rs, cs)), shape=[data.shape[0], mat_size * 2])
+        res = sparse.coo_matrix((vs, (rs, cs)), shape=[data.shape[0], mat_size * 4])
         return res.tocsr()
 
     def load(self):
         with ZipFile(self.output().path, 'r') as zf:
             with zf.open('train', 'r') as f:
                 train = io.mmread(f).tocsr()
+            with zf.open('merge', 'r') as f:
+                merge = io.mmread(f).tocsr()
             with zf.open('valid', 'r') as f:
                 valid = io.mmread(f).tocsr()
 
-        return train, valid
+        return train, merge, valid
 
     def load_test(self):
         with ZipFile(self.output().path, 'r') as zf:
@@ -186,7 +191,7 @@ class SharedWordCount(luigi.Task, core.MergableFeatures):
     @staticmethod
     def calculate_shared_vec(data, vocab_dict, vocab_max_id):
         shared_vec = []
-        for s1, s2 in tqdm.tqdm(zip(data.question1, data.question2), total=data.shape[0]):
+        for s1, s2 in tqdm.tqdm(zip(data.question1_tokens, data.question2_tokens), total=data.shape[0]):
             v1 = vectorize_sent(s1, vocab_dict, vocab_max_id)
             v2 = vectorize_sent(s2, vocab_dict, vocab_max_id)
             shared_vec.append(((v1 * v2) > 0).sum())
@@ -247,31 +252,31 @@ class QuestionVector(luigi.Task):
 
         train, merge, valid = dataset.Dataset().load()
         logging.info('Vectorizing: train/q1')
-        train_vecs1 = np.vstack(train.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        train_vecs1 = np.vstack(train.question1_clean.progress_apply(lambda q: English(q).vector).values)
         logging.info('Vectorizing: train/q2')
-        train_vecs2 = np.vstack(train.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        train_vecs2 = np.vstack(train.question2_clean.progress_apply(lambda q: English(q).vector).values)
         train_vecs = self.merge_vecs(train_vecs1, train_vecs2)
         del train, train_vecs1, train_vecs2
 
         logging.info('Vectorizing: merge/q1')
-        merge_vecs1 = np.vstack(merge.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        merge_vecs1 = np.vstack(merge.question1_clean.progress_apply(lambda q: English(q).vector).values)
         logging.info('Vectorizing: merge/q2')
-        merge_vecs2 = np.vstack(merge.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        merge_vecs2 = np.vstack(merge.question2_clean.progress_apply(lambda q: English(q).vector).values)
         merge_vecs = self.merge_vecs(merge_vecs1, merge_vecs2)
         del merge, merge_vecs1, merge_vecs2
 
         logging.info('Vectorizing: valid/q1')
-        valid_vecs1 = np.vstack(valid.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        valid_vecs1 = np.vstack(valid.question1_clean.progress_apply(lambda q: English(q).vector).values)
         logging.info('Vectorizing: valid/q2')
-        valid_vecs2 = np.vstack(valid.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        valid_vecs2 = np.vstack(valid.question2_clean.progress_apply(lambda q: English(q).vector).values)
         valid_vecs = self.merge_vecs(valid_vecs1, valid_vecs2)
         del valid, valid_vecs1, valid_vecs2
 
         test = dataset.Dataset().load_test()
+        logging.info('Vectorizing: test/q1')
+        test_vecs1 = np.vstack(test.question1_clean.progress_apply(lambda q: English(q).vector).values)
         logging.info('Vectorizing: test/q2')
-        test_vecs1 = np.vstack(test.question1.progress_apply(lambda q: English(' '.join(q)).vector).values)
-        logging.info('Vectorizing: test/q2')
-        test_vecs2 = np.vstack(test.question2.progress_apply(lambda q: English(' '.join(q)).vector).values)
+        test_vecs2 = np.vstack(test.question2_clean.progress_apply(lambda q: English(q).vector).values)
         test_vecs = self.merge_vecs(test_vecs1, test_vecs2)
         del test, test_vecs1, test_vecs2
 

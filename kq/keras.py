@@ -16,13 +16,13 @@ class QuestionReaderTask(luigi.Task):
     def output(self):
         return luigi.LocalTarget('./cache/classifier_pred.csv.gz')
 
-    def vectorize(self, words):
+    def vectorize(self, sent):
         global English
         if English is None:
             English = spacy.en.English()
 
         res = np.zeros([self.max_words, 300])
-        for ix, tok in enumerate(English(' '.join(words))):
+        for ix, tok in enumerate(English(sent)):
             if ix >= self.max_words:
                 break
             res[ix, :] = tok.vector
@@ -31,8 +31,8 @@ class QuestionReaderTask(luigi.Task):
     def make_data_vecs(self, frame):
         while True:
             samp = frame.sample(64)
-            X1 = np.concatenate(samp.question1.apply(self.vectorize).values, 1)
-            X2 = np.concatenate(samp.question2.apply(self.vectorize).values, 1)
+            X1 = np.concatenate(samp.question1_raw.apply(self.vectorize).values, 1)
+            X2 = np.concatenate(samp.question2_raw.apply(self.vectorize).values, 1)
             y = samp.is_duplicate.values.astype(np.float32)
 
             yield [X1.transpose(1, 0, 2), X2.transpose(1, 0, 2)], y
@@ -66,4 +66,5 @@ class QuestionReaderTask(luigi.Task):
 
         model.fit_generator(
             self.make_data_vecs(train), 128, epochs=1000,
-            validation_data=self.make_data_vecs(valid), validation_steps=32)
+            validation_data=self.make_data_vecs(valid),
+            validation_steps=32, class_weight={0: 1.309028344, 1: 0.472001959})

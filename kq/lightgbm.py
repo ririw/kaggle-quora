@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances
+from kq import dataset, shared_words, distances, shared_entites
 
 
 class SVMData(luigi.Task):
@@ -22,6 +22,7 @@ class SVMData(luigi.Task):
         yield shared_words.QuestionVector()
         for req in distances.AllDistances.requires():
             yield req
+        yield shared_entites.SharedEntities()
         yield self.data_source
 
     def complete(self):
@@ -39,51 +40,55 @@ class SVMData(luigi.Task):
     
     def run(self):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
-        if self.data_subset == 'train':
-            vecs = self.data_source.load()[0]
-            qvecs = shared_words.QuestionVector().load()[0]
-            dvecs = distances.AllDistances().load()[0]
-            labels = dataset.Dataset().load()[0].is_duplicate.values
-        elif self.data_subset == 'valid':
-            vecs = self.data_source.load()[2]
-            qvecs = shared_words.QuestionVector().load()[2]
-            dvecs = distances.AllDistances().load()[2]
-            labels = dataset.Dataset().load()[2].is_duplicate.values
-        elif self.data_subset == 'merge':
-            vecs = self.data_source.load()[1]
-            qvecs = shared_words.QuestionVector().load()[1]
-            dvecs = distances.AllDistances().load()[1]
-            labels = dataset.Dataset().load()[1].is_duplicate.values
+        if self.data_subset in {'train', 'valid', 'merge'}:
+            ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
+            vecs = self.data_source.load()[ix]
+            qvecs = shared_words.QuestionVector().load()[ix]
+            dvecs = distances.AllDistances().load()[ix]
+            evecs = shared_entites.SharedEntities().load()[ix]
+            labels = dataset.Dataset().load()[ix].is_duplicate.values
+            print('vecs: ' + str(vecs.shape))
+            print('qvecs: ' + str(qvecs.shape))
+            print('dvecs: ' + str(dvecs.shape))
+            print('evecs: ' + str(evecs.shape))
+            print('labels: ' + str(labels.shape))
         else:
             vecs = self.data_source.load_test()
             qvecs = shared_words.QuestionVector().load_test()
             dvecs = distances.AllDistances().load_test()
+            evecs = shared_entites.SharedEntities().load_test()
             labels = np.zeros(qvecs.shape[0], dtype='uint8')
 
-        qvec_offset = qvecs.shape[1]
-        dvec_offset = dvecs.shape[1]
-        both_offset = qvec_offset + dvec_offset
+        qvec_offset = 1
+        dvec_offset = qvecs.shape[1]
+        evec_offset = dvec_offset + dvecs.shape[1]
+        vecs_offset = evec_offset + evecs.shape[1]
 
         def write_row(i, f):
             row = vecs[i]
             qvec = qvecs[i] * 100
             dvec = dvecs[i] * 100
+            evec = evecs[i]
             label = labels[i]
-            qvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(qvec))
-            dvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(dvec, start=qvec_offset))
-            entries = " ".join(("%d:%.2f" % (ind + both_offset, data) for ind, data in zip(row.indices, row.data)))
-            f.write("%d %s %s %s\n" % (label, qvec_entries, dvec_entries, entries))
+            qvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(qvec, start=qvec_offset))
+            dvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(dvec, start=dvec_offset))
+            evec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(evec, start=evec_offset))
+            entries = " ".join(("%d:%.2f" % (ind + vecs_offset, data) for ind, data in zip(row.indices, row.data)))
+            f.write("%d %s %s %s %s\n" % (label, qvec_entries, dvec_entries, evec_entries, entries))
+            #f.write("%d %s %s\n" % (label, qvec_entries, dvec_entries))
 
         os.makedirs('cache/svm_data', exist_ok=True)
         if self.data_subset == 'test':
             for start_ix in tqdm(self.test_target_indexes(vecs.shape[0])):
-                with open('cache/svm_data/test_%d.svm' % start_ix, 'w') as f:
+                with open('cache/svm_data/test_%d_tmp.svm' % start_ix, 'w') as f:
                     for i in range(start_ix, min(start_ix+self.max_size, vecs.shape[0])):
                         write_row(i, f)
+                os.rename('cache/svm_data/test_%d_tmp.svm' % start_ix, 'cache/svm_data/test_%d.svm' % start_ix)
         else:
-            with open('cache/svm_data/%s.svm' % self.data_subset, 'w') as f:
+            with open('cache/svm_data/%s_tmp.svm' % self.data_subset, 'w') as f:
                 for i in tqdm(range(qvecs.shape[0]), desc='writing %s data' % self.data_subset):
                     write_row(i, f)
+            os.rename('cache/svm_data/%s_tmp.svm' % self.data_subset, 'cache/svm_data/%s.svm' % self.data_subset)
 
     @staticmethod
     def test_target_indexes(test_size):
@@ -103,7 +108,7 @@ class ValidSVMData(SVMData):
     data_subset = 'valid'
 
 class MergeSVMData(SVMData):
-    data_subset = 'valid'
+    data_subset = 'merge'
 
 class TestSVMData(SVMData):
     data_subset = 'test'
@@ -115,6 +120,7 @@ class GBMClassifier(luigi.Task):
     def requires(self):
         yield TrainSVMData()
         yield ValidSVMData()
+        yield MergeSVMData()
         yield TestSVMData()
         yield dataset.Dataset()
 
@@ -134,12 +140,12 @@ class GBMClassifier(luigi.Task):
             f.write(self.valid_conf)
         local[self.lightgbm_path]['config=cache/lightgbm/valid_gbmclassifier.conf'] & FG
         print(colors.green & colors.bold | "Finished validation predictions")
-        pred = pandas.read_csv('./cache/lightgbm/valid_preds.csv', names=['is_duplicate'])
+        pred = pandas.read_csv('cache/lightgbm/valid_preds.csv', names=['is_duplicate'])
         pred.index = pred.index.rename('test_id')
 
         print(colors.green | "prediction sample...")
         print(colors.green | str(pred.head()))
-        y = dataset.Dataset().load()[1]
+        y = dataset.Dataset().load()[2]
         print(colors.green | "Performance: " + str(metrics.log_loss(y.is_duplicate, pred.is_duplicate)))
 
         return pred
@@ -163,7 +169,7 @@ class GBMClassifier(luigi.Task):
         return preds
 
     def run(self):
-        self.train()
+        #self.train()
         self.valid()
         pred = self.test()
 
@@ -191,6 +197,7 @@ class GBMClassifier(luigi.Task):
     learning_rate = 0.1
     num_trees = 1000
     num_leaves = 1023
+    #scale_pos_weight = 0.360574285
 
     bagging_freq = 3
     feature_fraction = 0.8

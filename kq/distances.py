@@ -7,7 +7,6 @@ import numpy as np
 from tqdm import tqdm
 
 from kq import dataset
-from kq.shared_words import En
 
 
 class DistanceBase(luigi.Task):
@@ -28,17 +27,17 @@ class DistanceBase(luigi.Task):
         train, merge, valid = dataset.Dataset().load()
         train_dists = []
         for _, row in tqdm(train.iterrows(), desc='Train distance %s' % self.name, total=train.shape[0]):
-            train_dists.append(self.dist_fn(row.question1, row.question2))
+            train_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
         train_dists = np.asarray(train_dists)
 
         merge_dists = []
-        for _, row in tqdm(valid.iterrows(), desc='Merge distance %s' % self.name, total=valid.shape[0]):
-            merge_dists.append(self.dist_fn(row.question1, row.question2))
+        for _, row in tqdm(merge.iterrows(), desc='Merge distance %s' % self.name, total=merge.shape[0]):
+            merge_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
         merge_dists = np.asarray(merge_dists)
 
         valid_dists = []
         for _, row in tqdm(valid.iterrows(), desc='Valid distance %s' % self.name, total=valid.shape[0]):
-            valid_dists.append(self.dist_fn(row.question1, row.question2))
+            valid_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
         valid_dists = np.asarray(valid_dists)
 
         del train, valid, merge
@@ -46,7 +45,7 @@ class DistanceBase(luigi.Task):
         test = dataset.Dataset().load_test()
         test_dists = []
         for _, row in tqdm(test.iterrows(), desc='Test distance %s' % self.name, total=test.shape[0]):
-            test_dists.append(self.dist_fn(row.question1, row.question2))
+            test_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
         test_dists = np.asarray(test_dists)
 
         tf = tempfile.NamedTemporaryFile(delete=False)
@@ -120,7 +119,7 @@ class WordsDistance(DistanceBase):
 
 class CharsDistance(DistanceBase):
     def dist_fn(self, xs, ys):
-        return abs(sum((len(x) for x in xs)) - sum((len(x) for y in ys)))
+        return abs(sum((len(x) for x in xs)) - sum((len(y) for y in ys)))
 
     @property
     def name(self):
@@ -142,12 +141,12 @@ class AllDistances:
             assert req.complete()
             train, merge, valid = req.load()
             all_train.append(train)
-            all_valid.append(valid)
             all_merge.append(merge)
+            all_valid.append(valid)
 
         all_train = np.vstack(all_train).T
-        all_valid = np.vstack(all_valid).T
         all_merge = np.vstack(all_merge).T
+        all_valid = np.vstack(all_valid).T
 
         return all_train, all_merge, all_valid
 

@@ -13,8 +13,10 @@ import re
 import spacy
 from nltk import SnowballStemmer
 from nltk.corpus import stopwords
+from tqdm import tqdm
 
 English = None
+
 
 def clean_text(text):
     global English
@@ -57,6 +59,8 @@ class Dataset(luigi.Task):
         return luigi.LocalTarget('./cache/dataset-done')
 
     def run(self):
+        tqdm.pandas(tqdm)
+
         kaggle_train_data = pandas.read_csv(os.path.expanduser('~/Datasets/Kaggle-Quora/train.csv')).drop('id', 1)
         num_pos = kaggle_train_data.is_duplicate.sum()
         num_neg = kaggle_train_data.shape[0] - kaggle_train_data.is_duplicate.sum()
@@ -81,8 +85,16 @@ class Dataset(luigi.Task):
                 .reset_index(drop=True)
             assert 0.15 < (kaggle_train_data.is_duplicate.mean()) < 0.17, str(kaggle_train_data.is_duplicate.mean())
 
-        kaggle_train_data['question1'] = kaggle_train_data['question1'].fillna('').apply(clean_text)
-        kaggle_train_data['question2'] = kaggle_train_data['question2'].fillna('').apply(clean_text)
+        print('Raw training questions')
+        kaggle_train_data['question1_raw'] = kaggle_train_data['question1'].fillna('')
+        kaggle_train_data['question2_raw'] = kaggle_train_data['question2'].fillna('')
+        print('Clean training tokens')
+        kaggle_train_data['question1_tokens'] = kaggle_train_data['question1_raw'].progress_apply(clean_text)
+        kaggle_train_data['question2_tokens'] = kaggle_train_data['question2_raw'].progress_apply(clean_text)
+        print('Clean training questions')
+        kaggle_train_data['question1_clean'] = kaggle_train_data['question1_tokens'].progress_apply(' '.join)
+        kaggle_train_data['question2_clean'] = kaggle_train_data['question2_tokens'].progress_apply(' '.join)
+
         # Make sure the valid set contains _zero_ question from the train set.
         a = kaggle_train_data.qid1.apply(lambda v: mmh3.hash(str(v).encode('ascii'), 2213) % 8)
         b = kaggle_train_data.qid2.apply(lambda v: mmh3.hash(str(v).encode('ascii'), 6663) % 8)
@@ -90,6 +102,7 @@ class Dataset(luigi.Task):
         merge_data = kaggle_train_data[(a == 0) & (b == 0)].reset_index(drop=True)
         valid_data = kaggle_train_data[(a == 1) & (b == 1)].reset_index(drop=True)
 
+        print('Writing training data')
         self.output().makedirs()
         train_data.to_msgpack('cache/dataset-train.msg')
         merge_data.to_msgpack('cache/dataset-merge.msg')
@@ -97,8 +110,16 @@ class Dataset(luigi.Task):
         del train_data, valid_data, kaggle_train_data
 
         kaggle_test_data = pandas.read_csv(os.path.expanduser('~/Datasets/Kaggle-Quora/test.csv'))
-        kaggle_test_data['question1'] = kaggle_test_data['question1'].fillna('')
-        kaggle_test_data['question2'] = kaggle_test_data['question2'].fillna('')
+        print('Raw testing questions')
+        kaggle_test_data['question1_raw'] = kaggle_test_data['question1'].fillna('')
+        kaggle_test_data['question2_raw'] = kaggle_test_data['question2'].fillna('')
+        print('Clean testing tokens')
+        kaggle_test_data['question1_tokens'] = kaggle_test_data['question1_raw'].progress_apply(clean_text)
+        kaggle_test_data['question2_tokens'] = kaggle_test_data['question2_raw'].progress_apply(clean_text)
+        print('Clean testing questions')
+        kaggle_test_data['question1_clean'] = kaggle_test_data['question1_tokens'].progress_apply(' '.join)
+        kaggle_test_data['question2_clean'] = kaggle_test_data['question2_tokens'].progress_apply(' '.join)
+
         kaggle_test_data.to_msgpack('cache/dataset-test.msg')
 
         with self.output().open('w') as f:
