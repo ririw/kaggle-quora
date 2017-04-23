@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances, shared_entites
+from kq import dataset, shared_words, distances, shared_entites, core
 
 
 class SVMData(luigi.Task):
@@ -43,6 +43,7 @@ class SVMData(luigi.Task):
         if self.data_subset in {'train', 'valid', 'merge'}:
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
             vecs = self.data_source.load()[ix]
+            vecs = vecs[:, :vecs.shape[1]//2]
             qvecs = shared_words.QuestionVector().load()[ix]
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
@@ -66,10 +67,11 @@ class SVMData(luigi.Task):
 
         def write_row(i, f):
             row = vecs[i]
-            qvec = qvecs[i] * 100
-            dvec = dvecs[i] * 100
-            evec = evecs[i]
+            qvec = np.nan_to_num(qvecs[i])
+            dvec = np.nan_to_num(dvecs[i])
+            evec = np.nan_to_num(evecs[i])
             label = labels[i]
+
             qvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(qvec, start=qvec_offset))
             dvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(dvec, start=dvec_offset))
             evec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(evec, start=evec_offset))
@@ -135,18 +137,27 @@ class GBMClassifier(luigi.Task):
         local[self.lightgbm_path]['config=cache/lightgbm/train_gbmclassifier.conf'] & FG
         print(colors.green & colors.bold | "Finished training")
 
-    def valid(self):
-        with open('cache/lightgbm/valid_gbmclassifier.conf', 'w') as f:
-            f.write(self.valid_conf)
-        local[self.lightgbm_path]['config=cache/lightgbm/valid_gbmclassifier.conf'] & FG
-        print(colors.green & colors.bold | "Finished validation predictions")
-        pred = pandas.read_csv('cache/lightgbm/valid_preds.csv', names=['is_duplicate'])
-        pred.index = pred.index.rename('test_id')
+    def pred_simple_target(self, dataset):
+        with open('cache/lightgbm/pred.conf', 'w') as f:
+            f.write(self.valid_conf % dataset)
 
+        local[self.lightgbm_path]['config=cache/lightgbm/pred.conf'] & FG
+        pred = pandas.read_csv('./cache/lightgbm/preds.csv', names=['is_duplicate'])
+        pred.index = pred.index.rename('test_id')
+        return pred
+
+    def merge(self):
+        pred = self.pred_simple_target('valid')
+        pred.to_csv('cache/lightgbm/merge_predictions.csv')
+
+    def valid(self):
+        pred = self.pred_simple_target('valid')
         print(colors.green | "prediction sample...")
         print(colors.green | str(pred.head()))
         y = dataset.Dataset().load()[2]
-        print(colors.green | "Performance: " + str(metrics.log_loss(y.is_duplicate, pred.is_duplicate)))
+        weights = core.weights[y.is_duplicate.values]
+        loss = metrics.log_loss(y.is_duplicate, pred.is_duplicate, sample_weight=weights)
+        print(colors.green | "Performance: " + str(loss))
 
         return pred
 
@@ -169,7 +180,9 @@ class GBMClassifier(luigi.Task):
         return preds
 
     def run(self):
-        #self.train()
+        self.output().makedirs()
+        self.train()
+        self.merge()
         self.valid()
         pred = self.test()
 
@@ -194,16 +207,17 @@ class GBMClassifier(luigi.Task):
     valid_data=cache/svm_data/valid.svm
     output_model=cache/lightgbm/gbm_model
 
-    learning_rate = 0.1
+    learning_rate = 0.01
     num_trees = 1000
-    num_leaves = 1023
-    #scale_pos_weight = 0.360574285
+    num_leaves = 512
+    scale_pos_weight = 0.46
+    is_unbalance=true
+    lambda_l1=0.00005
+    lambda_l2=0.00005
 
     bagging_freq = 3
-    feature_fraction = 0.8
     bagging_fraction = 0.8
 
-    min_data_in_leaf = 20
     is_enable_sparse = true
     use_two_round_loading = false
     is_save_binary_file = false
@@ -211,9 +225,9 @@ class GBMClassifier(luigi.Task):
 
     valid_conf = """
     task = predict
-    data = cache/svm_data/valid.svm
+    data = cache/svm_data/%s.svm
     input_model=cache/lightgbm/gbm_model
-    output_result=cache/lightgbm/valid_preds.csv
+    output_result=cache/lightgbm/preds.csv
     """
 
     test_conf = """
@@ -230,6 +244,7 @@ class XGBlassifier(luigi.Task):
     def requires(self):
         yield TrainSVMData()
         yield ValidSVMData()
+        yield MergeSVMData()
         yield TestSVMData()
         yield dataset.Dataset()
 
@@ -247,18 +262,15 @@ class XGBlassifier(luigi.Task):
     train_conf = """
     booster = gbtree
     objective = binary:logistic
+    eval_metric=logloss
     
-    eta = 0.1
-    gamma = 1.0
-    min_child_weight = 1
-    max_depth = 7
-    
-    #rate_drop=0.25
-    #skip_drop=0.1
+    eta = 0.3
+    max_depth = 4
+    scale_pos_weight=0.46
     
     subsample=0.8
     
-    num_round = 50
+    num_round = 1000
     save_period = 0
     data = "cache/svm_data/train.svm"
     eval[test] = "cache/svm_data/valid.svm"
@@ -266,26 +278,36 @@ class XGBlassifier(luigi.Task):
     nthread=4
     """
 
-    def valid(self):
-        with open('cache/xgb/valid.conf', 'w') as f:
-            f.write(self.valid_conf)
-        local[self.xgb_path]['cache/xgb/valid.conf'] & FG
-        print(colors.green & colors.bold | "Finished validation predictions")
-        pred = pandas.read_csv('./cache/xgb/valid_preds.csv', names=['is_duplicate'])
-        pred.index = pred.index.rename('test_id')
+    def pred_simple_target(self, dataset):
+        with open('cache/xgb/pred.conf', 'w') as f:
+            f.write(self.valid_conf % dataset)
 
+        local[self.xgb_path]['cache/xgb/pred.conf'] & FG
+        pred = pandas.read_csv('./cache/xgb/preds.csv', names=['is_duplicate'])
+        pred.index = pred.index.rename('test_id')
+        return pred
+
+
+    def valid(self):
+        pred = self.pred_simple_target('valid')
         print(colors.green | "prediction sample...")
         print(colors.green | str(pred.head()))
-        y = dataset.Dataset().load()[1]
-        print(colors.green | "Performance: " + str(metrics.log_loss(y.is_duplicate, pred.is_duplicate)))
+        y = dataset.Dataset().load()[2]
+        weights = core.weights[y.is_duplicate.values]
+        loss = metrics.log_loss(y.is_duplicate, pred.is_duplicate, sample_weight=weights)
+        print(colors.green | "Performance: " + str(loss))
 
         return pred
+
+    def merge(self):
+        pred = self.pred_simple_target('merge')
+        pred.to_csv('cache/xgb/merge_predictions.csv')
 
     valid_conf = """
     task = pred
     model_in = "cache/xgb/model"
-    test:data = "cache/svm_data/valid.svm"
-    name_pred = "cache/xgb/valid_preds.csv"
+    test:data = "cache/svm_data/%s.svm"
+    name_pred = "cache/xgb/preds.csv"
     """
 
     def test(self):
@@ -316,6 +338,7 @@ class XGBlassifier(luigi.Task):
 
     def run(self):
         self.train()
+        self.merge()
         self.valid()
         pred = self.test()
 

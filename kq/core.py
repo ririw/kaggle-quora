@@ -1,4 +1,5 @@
 import pandas
+import numpy as np
 
 
 class MergableFeatures:
@@ -25,3 +26,6 @@ class MergableFeatures:
     def valid_multiple(features):
         data = pandas.concat([feature.valid_feature() for feature in features], 1)
         return data
+
+
+weights = np.array([1.309028344, 0.472001959])

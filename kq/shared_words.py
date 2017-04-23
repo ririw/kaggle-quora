@@ -31,22 +31,19 @@ class Vocab(luigi.Task):
         return luigi.LocalTarget('./cache/vocab.msg')
 
     def run(self):
-        En = spacy.en.English()
         train_data, _, _ = dataset.Dataset().load()
         vocab_count = Counter()
-        for sent in tqdm.tqdm(train_data.question1_raw,
+        for sent in tqdm.tqdm(train_data.question1_tokens,
                               desc='Counting questions one',
                               total=train_data.shape[0]):
-            for tok in En(sent):
-                if tok.is_alpha and not tok.is_stop:
-                    vocab_count[tok.lower_] += 1
+            for tok in sent:
+                vocab_count[tok] += 1
 
-        for sent in tqdm.tqdm(train_data.question2_raw,
+        for sent in tqdm.tqdm(train_data.question1_tokens,
                               desc='Counting questions two',
                               total=train_data.shape[0]):
-            for tok in En(sent):
-                if tok.is_alpha and not tok.is_stop:
-                    vocab_count[tok.lower_] += 1
+            for tok in sent:
+                vocab_count[tok] += 1
 
         vocab_counts = pandas.Series(vocab_count)
         self.output().makedirs()
@@ -109,15 +106,13 @@ class WordVectors(luigi.Task):
         for ix, (s1, s2) in tqdm.tqdm(
                 enumerate(zip(data.question1_tokens, data.question2_tokens)), total=data.shape[0],
                 desc='Vectorizing matrix' + vec_note):
-            vec = np.zeros(mat_size * 4)
+            vec = np.zeros(mat_size*2)
             v1 = vectorize_sent(s1, vocab_dict, vocab_max_id)
             v2 = vectorize_sent(s2, vocab_dict, vocab_max_id)
 
             assert (max(np.max(v1), np.max(v2)) < 255)
             vec[:mat_size] = v1 * v2
-            vec[mat_size:mat_size*2] = v1 + v2
-            vec[mat_size*2:mat_size*3] = v1
-            vec[mat_size*3:] = v2
+            vec[mat_size:] = v1 + v2
             nonzero_ix = np.nonzero(vec)[0]
             nonzero_vs = vec[nonzero_ix]
             vs.append(nonzero_vs)
