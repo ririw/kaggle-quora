@@ -7,6 +7,7 @@ import itertools
 
 from tqdm import tqdm
 
+from kq import core
 from kq.dataset import Dataset
 
 
@@ -61,7 +62,7 @@ class MaxoutTask(luigi.Task):
     max_words = 64
     epochs = 10
     batch_size = 32
-    weights = np.asarray([1.309028344, 0.472001959], np.float32)
+    weights = core.weights.astype(np.float32)
 
     def requires(self):
         yield Dataset()

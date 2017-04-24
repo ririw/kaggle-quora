@@ -236,7 +236,7 @@ class QuestionVector(luigi.Task):
             spatial.distance.braycurtis]
         distance_vecs = [[d(a, b) for a, b in zip(v1, v2)] for d in distances]
         distance_mat = np.asarray(distance_vecs).T
-        return np.concatenate([v1, v2, distance_mat], 1)
+        return np.concatenate([distance_mat], 1)
 
 
     def run(self):

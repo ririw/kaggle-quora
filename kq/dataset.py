@@ -51,7 +51,7 @@ def clean_text(text):
     text = re.sub(r"e - mail", "email", text)
     text = re.sub(r"j k", "jk", text)
     text = re.sub(r"\s{2,}", " ", text)
-    return [w.lemma_ for w in English(text)]
+    return [w.lemma_ for w in English(text) if not w.is_stop and not w.is_punct]
 
 
 class Dataset(luigi.Task):

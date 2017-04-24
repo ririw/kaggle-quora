@@ -16,7 +16,7 @@ class NaiveBayesClassifier(luigi.Task):
         yield Dataset()
 
     def output(self):
-        return luigi.LocalTarget('cache/nb/predictions.csv.gz')
+        return luigi.LocalTarget('cache/nb/predictions.csv')
 
     def run(self):
         self.output().makedirs()
@@ -40,3 +40,13 @@ class NaiveBayesClassifier(luigi.Task):
         pred = cls.predict_proba(test)[:, 1]
         pandas.Series(pred).to_csv('cache/nb/predictions_tmp.csv')
         os.rename('cache/nb/predictions_tmp.csv', 'cache/nb/predictions.csv')
+
+
+    def load(self):
+        assert self.complete()
+        return pandas.read_csv('cache/nb/merge_predictions.csv', names=['test_id', 'pred'], index_col='test_id').values
+
+    def load_test(self):
+        assert self.complete()
+        return pandas.read_csv('cache/nb/predictions.csv', names=['test_id', 'pred'], index_col='test_id').values
+

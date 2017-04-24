@@ -120,7 +120,7 @@ class VWClassifier(luigi.Task):
         yield TrainVWData()
         yield ValidVWData()
         yield MergeVWData()
-        #yield TestVWData()
+        yield TestVWData()
         yield dataset.Dataset()
 
     def output(self):
@@ -188,3 +188,11 @@ class VWClassifier(luigi.Task):
         except:
             os.remove(tf.name)
             raise
+
+    def load(self):
+        assert self.complete()
+        return pandas.read_csv('cache/vw/merge_predictions.csv', index_col='test_id').values
+
+    def load_test(self):
+        assert self.complete()
+        return pandas.read_csv('cache/vw/classifier_pred.csv.gz', index_col='test_id').values

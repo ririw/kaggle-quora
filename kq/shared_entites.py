@@ -16,7 +16,7 @@ class SharedEntities(luigi.Task):
         return Dataset()
 
     def extract_ents(self, words):
-        doc = self.nlp(u'London is a big city in the United Kingdom.')
+        doc = self.nlp(words)
         entities = {ent.text: ent.vector for ent in doc.ents}
         return entities
 

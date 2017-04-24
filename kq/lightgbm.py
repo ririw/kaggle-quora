@@ -147,7 +147,7 @@ class GBMClassifier(luigi.Task):
         return pred
 
     def merge(self):
-        pred = self.pred_simple_target('valid')
+        pred = self.pred_simple_target('merge')
         pred.to_csv('cache/lightgbm/merge_predictions.csv')
 
     def valid(self):
@@ -194,6 +194,14 @@ class GBMClassifier(luigi.Task):
             os.remove(tf.name)
             raise
 
+    def load(self):
+        assert self.complete()
+        return pandas.read_csv('cache/lightgbm/merge_predictions.csv', index_col='test_id').values
+
+    def load_test(self):
+        assert self.complete()
+        return pandas.read_csv('cache/lightgbm/classifier_pred.csv.gz', index_col='test_id').values
+
     train_conf = """
     task = train
     boosting_type = gbdt
@@ -209,11 +217,9 @@ class GBMClassifier(luigi.Task):
 
     learning_rate = 0.01
     num_trees = 1000
-    num_leaves = 512
+    num_leaves = 1024
     scale_pos_weight = 0.46
     is_unbalance=true
-    lambda_l1=0.00005
-    lambda_l2=0.00005
 
     bagging_freq = 3
     bagging_fraction = 0.8
@@ -264,8 +270,8 @@ class XGBlassifier(luigi.Task):
     objective = binary:logistic
     eval_metric=logloss
     
-    eta = 0.3
-    max_depth = 4
+    eta = 0.1
+    max_depth = 7
     scale_pos_weight=0.46
     
     subsample=0.8
@@ -349,3 +355,12 @@ class XGBlassifier(luigi.Task):
         except:
             os.remove(tf.name)
             raise
+
+    def load(self):
+        assert self.complete()
+        res = pandas.read_csv('cache/xgb/merge_predictions.csv', index_col='test_id')
+        return res
+
+    def load_test(self):
+        assert self.complete()
+        return pandas.read_csv('cache/xgb/classifier_pred.csv.gz', index_col='test_id').values
