@@ -25,26 +25,26 @@ class MaxoutReduction(torch.nn.Module):
         batch_size, word_vec_size, num_words = words_vecs.size()
         assert word_vec_size == 300, 'Word vec should be 300'
 
-        c1 = torch.nn.PReLU()(self.conv1(words_vecs))
-        c2 = torch.nn.PReLU()(self.conv2(c1))
-        total = torch.sum(c2, 2).squeeze() / batch_size
-        absmax = torch.max(c2, 2)[0].squeeze()
+        c1 = torch.nn.PReLU()(torch.nn.MaxPool1d(2)(self.conv1(words_vecs)))
+        c2 = torch.nn.PReLU()(torch.nn.MaxPool1d(2)(self.conv2(c1)))
 
-        return torch.cat([total, absmax], 1)
+        return c2.resize(batch_size, 500)
 
 
 class Linear(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.l1 = torch.nn.Linear(200, 50)
-        self.l2 = torch.nn.Linear(50, 2)
+        self.l1 = torch.nn.Linear(500, 250)
+        self.l2 = torch.nn.Linear(250, 250)
+        self.l3 = torch.nn.Linear(250, 50)
+        self.l4 = torch.nn.Linear(50, 2)
 
     def forward(self, X):
-        X = self.l1(X)
-        X = torch.nn.PReLU()(X)
-        X = torch.nn.Dropout(0.25)(X)
-        X = self.l2(X)
-        return torch.nn.PReLU()(X)
+        X = torch.nn.PReLU()(self.l1(torch.nn.Dropout(0.25)(X)))
+        X = torch.nn.PReLU()(self.l2(torch.nn.Dropout(0.25)(X)))
+        X = torch.nn.PReLU()(self.l3(torch.nn.Dropout(0.25)(X)))
+        X = torch.nn.PReLU()(self.l4(torch.nn.Dropout(0.25)(X)))
+        return X
 
 
 class SiameseMaxout(torch.nn.Module):
@@ -61,8 +61,8 @@ class SiameseMaxout(torch.nn.Module):
 
 
 class MaxoutTask(luigi.Task):
-    max_words = 64
-    epochs = 1000
+    max_words = 31
+    epochs = 500
     batch_size = 32
     weights = core.weights.astype(np.float32)
 
