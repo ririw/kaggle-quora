@@ -14,16 +14,14 @@ from kq import dataset, shared_words, distances, shared_entites, core
 
 class VWData(luigi.Task):
     data_subset = None  # train, test, merge or valid
-    data_source = shared_words.WordVectors()
     max_size = 100000
 
     def requires(self):
         yield dataset.Dataset()
+        yield shared_words.WordVectors()
         yield shared_words.QuestionVector()
-        for req in distances.AllDistances.requires():
-            yield req
+        yield distances.AllDistances()
         yield shared_entites.SharedEntities()
-        yield self.data_source
 
     def complete(self):
         if False and self.data_subset == 'test':
@@ -42,13 +40,13 @@ class VWData(luigi.Task):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
         if self.data_subset in {'train', 'valid', 'merge'}:
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
-            vecs = self.data_source.load()[ix]
+            vecs = shared_words.WordVectors().load()[ix]
             qvecs = shared_words.QuestionVector().load()[ix]
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
             labels = dataset.Dataset().load()[ix].is_duplicate.values
         else:
-            vecs = self.data_source.load_test()
+            vecs = shared_words.WordVectors().load_test()
             qvecs = shared_words.QuestionVector().load_test()
             dvecs = distances.AllDistances().load_test()
             evecs = shared_entites.SharedEntities().load_test()
@@ -136,8 +134,9 @@ class VWClassifier(luigi.Task):
         local[self.vw_path]['--binary ' \
                             '-f cache/vw/mdl ' \
                             '-q WW -q QE -q QD ' \
-                            '--l2 0.0005 ' \
-                            '--l1 0.0005 ' \
+                            '--passes 4 --cache_file cache/vw/cache -k ' \
+                            '--l2 0.001 ' \
+                            '--l1 0.001 ' \
                             'cache/vw_data/train.svm'.split(' ')] & FG
         print(colors.green & colors.bold | "Finished training")
 

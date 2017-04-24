@@ -6,7 +6,7 @@ import numpy as np
 import scipy.sparse as sp
 from plumbum import colors
 
-from kq import core, distances, dataset, shared_words, shared_entites
+from kq import core, distances, dataset, shared_words, shared_entites, tfidf_matrix
 from sklearn import ensemble, metrics
 
 
@@ -16,13 +16,14 @@ class XTCClassifier(luigi.Task):
         yield shared_words.WordVectors()
         yield shared_entites.SharedEntities()
         yield distances.AllDistances()
+        yield tfidf_matrix.TFIDFFeature()
 
     def output(self):
         return luigi.LocalTarget('cache/XTC/predictions.csv')
 
     def load_data(self, subset):
         ix = {'train': 0, 'merge': 1, 'valid': 2}[subset]
-        wv = shared_words.WordVectors().load()[ix]
+        wv = tfidf_matrix.TFIDFFeature.load_dataset(subset)
         se = np.nan_to_num(shared_entites.SharedEntities().load()[ix])
         ad = distances.AllDistances().load()[ix]
         y = dataset.Dataset().load()[ix].is_duplicate.values
@@ -32,7 +33,7 @@ class XTCClassifier(luigi.Task):
         return res, y
 
     def load_test_data(self):
-        wv = shared_words.WordVectors().load_test()
+        wv = tfidf_matrix.TFIDFFeature.load_dataset('test')
         se = np.nan_to_num(shared_entites.SharedEntities().load_test())
         ad = distances.AllDistances().load_test()
         res = sp.hstack([wv, se, ad])
@@ -43,8 +44,9 @@ class XTCClassifier(luigi.Task):
         X, y = self.load_data('train')
         weights = dict(enumerate(core.weights))
         cls = ensemble.ExtraTreesClassifier(
-            n_estimators=64, n_jobs=2, verbose=10,
-            bootstrap=True, min_samples_leaf=10, class_weight=weights)
+            n_estimators=512, n_jobs=2, verbose=10,
+            bootstrap=True, min_samples_leaf=10,
+            class_weight=weights)
         cls.fit(X, y)
 
         X, y = self.load_data('valid')

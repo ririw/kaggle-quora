@@ -18,15 +18,17 @@ class MaxoutReduction(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.convolution = torch.nn.Conv1d(300, 100, 3)
+        self.conv1 = torch.nn.Conv1d(300, 100, 3)
+        self.conv2 = torch.nn.Conv1d(100, 100, 5)
 
     def forward(self, words_vecs):
         batch_size, word_vec_size, num_words = words_vecs.size()
         assert word_vec_size == 300, 'Word vec should be 300'
 
-        convolved = self.convolution(words_vecs)
-        total = torch.sum(convolved, 2).squeeze() / batch_size
-        absmax = torch.max(convolved, 2)[0].squeeze()
+        c1 = torch.nn.PReLU()(self.conv1(words_vecs))
+        c2 = torch.nn.PReLU()(self.conv2(c1))
+        total = torch.sum(c2, 2).squeeze() / batch_size
+        absmax = torch.max(c2, 2)[0].squeeze()
 
         return torch.cat([total, absmax], 1)
 
@@ -60,7 +62,7 @@ class SiameseMaxout(torch.nn.Module):
 
 class MaxoutTask(luigi.Task):
     max_words = 64
-    epochs = 10
+    epochs = 1000
     batch_size = 32
     weights = core.weights.astype(np.float32)
 
@@ -118,7 +120,7 @@ class MaxoutTask(luigi.Task):
                 if train_loss is None:
                     train_loss = loss.data.numpy()[0]
                 else:
-                    train_loss = 0.9 * train_loss + 0.1 * loss.data.numpy()[0]
+                    train_loss = 0.95 * train_loss + 0.05 * loss.data.numpy()[0]
                 bar.set_description('%f -- %f' % (train_loss, test_loss))
                 loss.backward()
                 opt.step()
