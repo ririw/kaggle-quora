@@ -9,21 +9,19 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances, shared_entites, core
+from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix
 
 
 class SVMData(luigi.Task):
     data_subset = None  # train, test, merge or valid
-    data_source = shared_words.WordVectors()
     max_size = 100000
 
     def requires(self):
         yield dataset.Dataset()
         yield shared_words.QuestionVector()
-        for req in distances.AllDistances.requires():
-            yield req
+        yield distances.AllDistances()
         yield shared_entites.SharedEntities()
-        yield self.data_source
+        yield tfidf_matrix.TFIDFFeature()
 
     def complete(self):
         if self.data_subset == 'test':
@@ -42,7 +40,7 @@ class SVMData(luigi.Task):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
         if self.data_subset in {'train', 'valid', 'merge'}:
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
-            vecs = self.data_source.load()[ix]
+            vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
             qvecs = shared_words.QuestionVector().load()[ix]
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
@@ -53,7 +51,7 @@ class SVMData(luigi.Task):
             print('evecs: ' + str(evecs.shape))
             print('labels: ' + str(labels.shape))
         else:
-            vecs = self.data_source.load_test()
+            vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
             qvecs = shared_words.QuestionVector().load_test()
             dvecs = distances.AllDistances().load_test()
             evecs = shared_entites.SharedEntities().load_test()

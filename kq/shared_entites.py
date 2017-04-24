@@ -39,6 +39,7 @@ class SharedEntities(luigi.Task):
 
         mean_vec1 = np.mean(list(e1.values()))
         mean_vec2 = np.mean(list(e2.values()))
+        #diff = np.abs(mean_vec1 - mean_vec2)
 
         distances = [d(mean_vec1, mean_vec2) for d in self.distances]
         jaccard_ents = distance.jaccard(e1.keys(), e2.keys())

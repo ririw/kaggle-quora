@@ -37,14 +37,14 @@ class Linear(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.l1 = torch.nn.Linear(200, 50)
-        self.l2 = torch.nn.Linear(50, 1)
+        self.l2 = torch.nn.Linear(50, 2)
 
     def forward(self, X):
         X = self.l1(X)
         X = torch.nn.PReLU()(X)
         X = torch.nn.Dropout(0.25)(X)
         X = self.l2(X)
-        return torch.nn.Sigmoid()(X)
+        return torch.nn.PReLU()(X)
 
 
 class SiameseMaxout(torch.nn.Module):
@@ -69,6 +69,9 @@ class MaxoutTask(luigi.Task):
     def requires(self):
         yield Dataset()
 
+    def output(self):
+        return luigi.LocalTarget('cache/maxout/done')
+
     def dataset_iterator(self, dataset, requires_grad=True):
         def vectorize(words):
             res = np.zeros([1, 300, self.max_words])
@@ -88,9 +91,11 @@ class MaxoutTask(luigi.Task):
             q = dataset.iloc[ixs]
             X1 = q.question1.fillna('').apply(vectorize).values
             X2 = q.question2.fillna('').apply(vectorize).values
-            y = q.is_duplicate.values
+            #y = np.zeros([q.shape[0], 2], dtype=np.float32)
+            #y[np.arange(q.shape[0]), q.is_duplicate.values] = 1
+            y = q.is_duplicate.values.astype(np.int64)
             weight = np.zeros(self.batch_size, dtype=np.float32)
-            for i, v in enumerate(y):
+            for i, v in enumerate(q.is_duplicate.values):
                 weight[i] = self.weights[v]
 
             X1 = np.concatenate(X1, 0).astype(np.float32)
@@ -98,25 +103,30 @@ class MaxoutTask(luigi.Task):
 
             yield Variable(torch.from_numpy(X1), requires_grad=requires_grad), \
                   Variable(torch.from_numpy(X2), requires_grad=requires_grad), \
-                  Variable(torch.from_numpy(y.astype(np.float32))), \
+                  Variable(torch.from_numpy(y)), \
                   torch.from_numpy(weight)
         raise StopIteration()
 
     def run(self):
+        self.output().makedirs()
         self.English = spacy.en.English()
         train, merge, valid = Dataset().load()
 
         maxout = SiameseMaxout()
         opt = torch.optim.Adam(maxout.parameters())
-        test_loss = 0
+        test_loss = np.NaN
         train_loss = None
+        weights = torch.from_numpy(core.weights.astype(np.float32))
+
+        score_file = open('cache/maxout/scores.csv', 'w')
+        score_file.write('train_loss,test_loss\n')
 
         for i in range(self.epochs):
-            bar = tqdm(itertools.islice(self.dataset_iterator(train, True), 1024), total=1024)
-            for (v1, v2, y, w) in bar:
+            bar = tqdm(itertools.islice(self.dataset_iterator(train, True), 256), total=256)
+            for (v1, v2, y, _) in bar:
                 opt.zero_grad()
                 pred = maxout(v1, v2)
-                loss = torch.nn.BCELoss(weight=w)(pred, y)
+                loss = torch.nn.CrossEntropyLoss(weight=weights)(pred, y)
                 if train_loss is None:
                     train_loss = loss.data.numpy()[0]
                 else:
@@ -124,10 +134,14 @@ class MaxoutTask(luigi.Task):
                 bar.set_description('%f -- %f' % (train_loss, test_loss))
                 loss.backward()
                 opt.step()
+                score_file.write('%f,%f\n' % (train_loss, test_loss))
+                score_file.flush()
+
             bar = tqdm(itertools.islice(self.dataset_iterator(valid, False), 32), total=32)
             losses = []
-            for (v1, v2, y, w) in bar:
+            for (v1, v2, y, _) in bar:
                 pred = maxout(v1, v2)
-                loss = torch.nn.BCELoss(weight=w)(pred, y)
+                loss = torch.nn.CrossEntropyLoss(weight=weights)(pred, y)
                 losses.append(loss.data.numpy()[0])
             test_loss = np.mean(losses)
+        score_file.close()

@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances, shared_entites, core
+from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix
 
 
 class VWData(luigi.Task):
@@ -18,7 +18,7 @@ class VWData(luigi.Task):
 
     def requires(self):
         yield dataset.Dataset()
-        yield shared_words.WordVectors()
+        yield tfidf_matrix.TFIDFFeature()
         yield shared_words.QuestionVector()
         yield distances.AllDistances()
         yield shared_entites.SharedEntities()
@@ -35,18 +35,18 @@ class VWData(luigi.Task):
             return True
         else:
             return os.path.exists('cache/vw_data/%s.svm' % self.data_subset)
-    
+
     def run(self):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
         if self.data_subset in {'train', 'valid', 'merge'}:
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
-            vecs = shared_words.WordVectors().load()[ix]
+            vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
             qvecs = shared_words.QuestionVector().load()[ix]
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
             labels = dataset.Dataset().load()[ix].is_duplicate.values
         else:
-            vecs = shared_words.WordVectors().load_test()
+            vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
             qvecs = shared_words.QuestionVector().load_test()
             dvecs = distances.AllDistances().load_test()
             evecs = shared_entites.SharedEntities().load_test()
@@ -78,7 +78,7 @@ class VWData(luigi.Task):
         if False:
             for start_ix in tqdm(self.test_target_indexes(vecs.shape[0])):
                 with open('cache/vw_data/test_%d_tmp.svm' % start_ix, 'w') as f:
-                    for i in range(start_ix, min(start_ix+self.max_size, vecs.shape[0])):
+                    for i in range(start_ix, min(start_ix + self.max_size, vecs.shape[0])):
                         write_row(i, f)
                 os.rename('cache/vw_data/test_%d_tmp.svm' % start_ix, 'cache/vw_data/test_%d.svm' % start_ix)
         else:
@@ -104,8 +104,10 @@ class TrainVWData(VWData):
 class ValidVWData(VWData):
     data_subset = 'valid'
 
+
 class MergeVWData(VWData):
     data_subset = 'merge'
+
 
 class TestVWData(VWData):
     data_subset = 'test'
@@ -168,7 +170,7 @@ class VWClassifier(luigi.Task):
         local[self.vw_path]['-i cache/vw/mdl -t cache/vw_data/test.svm -p cache/vw/test_preds.csv'.split(' ')] & FG
         print(colors.green & colors.bold | "Finished test predictions")
 
-        pred = (pandas.read_csv('cache/vw/test_preds.csv', names=['is_duplicate']) + 1)/2
+        pred = (pandas.read_csv('cache/vw/test_preds.csv', names=['is_duplicate']) + 1) / 2
         pred.index = pred.index.rename('test_id')
 
         return pred

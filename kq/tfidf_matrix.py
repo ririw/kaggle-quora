@@ -97,10 +97,10 @@ class TFIDFFeature(luigi.Task):
     def load_dataset(name):
         assert name in {'train', 'merge', 'valid', 'test'}, 'Name %s was not one of train/test/merge/valid' % name
         if name == 'train':
-            return scipy.io.mmread('cache/tfidf/train.mtx')
+            return scipy.io.mmread('cache/tfidf/train.mtx').tocsr()
         elif name == 'valid':
-            return scipy.io.mmread('cache/tfidf/valid.mtx')
+            return scipy.io.mmread('cache/tfidf/valid.mtx').tocsr()
         elif name == 'merge':
-            return scipy.io.mmread('cache/tfidf/merge.mtx')
+            return scipy.io.mmread('cache/tfidf/merge.mtx').tocsr()
         elif name == 'test':
-            return scipy.io.mmread('cache/tfidf/test.mtx')
+            return scipy.io.mmread('cache/tfidf/test.mtx').tocsr()
