@@ -4,6 +4,7 @@ import numpy as np
 from plumbum import colors
 
 from kq import core
+from kq.xtc import XTCClassifier
 from kq.dataset import Dataset
 from kq.lightgbm import XGBlassifier, GBMClassifier
 from kq.vw import VWClassifier
@@ -18,9 +19,16 @@ class Stacks(luigi.Task):
         yield GBMClassifier()
         yield VWClassifier()
         yield NaiveBayesClassifier()
+        yield XTCClassifier()
 
     def output(self):
         return luigi.LocalTarget('cache/stacked_pred.csv')
+
+    def complete(self):
+        for r in self.requires():
+            if not r.complete():
+                return False
+        return self.output().exists()
 
     def run(self):
         data = {}

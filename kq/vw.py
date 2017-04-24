@@ -135,7 +135,7 @@ class VWClassifier(luigi.Task):
             pass
         local[self.vw_path]['--binary ' \
                             '-f cache/vw/mdl ' \
-                            '-q WW -q QE ' \
+                            '-q WW -q QE -q QD ' \
                             '--l2 0.0005 ' \
                             '--l1 0.0005 ' \
                             'cache/vw_data/train.svm'.split(' ')] & FG

@@ -1,7 +1,9 @@
 import luigi
+import os
 import numpy as np
 import spacy.en
 import keras
+from sklearn import metrics
 
 from kq.dataset import Dataset
 from kq.shared_words import Vocab
@@ -14,7 +16,7 @@ class QuestionReaderTask(luigi.Task):
         yield Dataset()
 
     def output(self):
-        return luigi.LocalTarget('./cache/classifier_pred.csv.gz')
+        return luigi.LocalTarget('./cache/keras/classifier_pred.csv')
 
     def vectorize(self, sent):
         global English
@@ -37,7 +39,22 @@ class QuestionReaderTask(luigi.Task):
 
             yield [X1.transpose(1, 0, 2), X2.transpose(1, 0, 2)], y
 
+    def make_seq_dataset(self, frame):
+        while True:
+            batches = int(np.ceil(frame.shape[0] / 512))
+            for ix in range(batches):
+                start = ix * 512
+                end = min(frame.shape[0], (ix + 1) * 512)
+                samp = frame.iloc[start:end]
+
+                X1 = np.concatenate(samp.question1_raw.apply(self.vectorize).values, 1).transpose(1, 0, 2)
+                X2 = np.concatenate(samp.question2_raw.apply(self.vectorize).values, 1).transpose(1, 0, 2)
+
+                yield [X1, X2]
+            print("!!!!!!!")
+
     def run(self):
+        self.output().makedirs()
         train, merge, valid = Dataset().load()
 
         in1 = keras.layers.Input([self.max_words, 300])
@@ -65,6 +82,22 @@ class QuestionReaderTask(luigi.Task):
         model.compile('nadam', 'binary_crossentropy')
 
         model.fit_generator(
-            self.make_data_vecs(train), 128, epochs=1000,
+            self.make_data_vecs(train), 128, epochs=100,
             validation_data=self.make_data_vecs(valid),
             validation_steps=32, class_weight={0: 1.309028344, 1: 0.472001959})
+
+        batches = np.ceil(valid.shape[0] / 512)
+        valid_predictions = model.predict_generator(self.make_seq_dataset(valid), int(batches), verbose=1)
+        print(metrics.log_loss(valid.is_duplicate.values, valid_predictions))
+
+        batches = np.ceil(merge.shape[0] / 512)
+        merge_predictions = model.predict_generator(self.make_seq_dataset(merge), int(batches), verbose=1)
+        print(merge_predictions.shape)
+        np.save('cache/keras/merge_predictions.csv', merge_predictions)
+
+        test = Dataset().load_test()
+        batches = np.ceil(test.shape[0] / 512)
+        test_predictions = model.predict_generator(self.make_seq_dataset(test), int(batches), verbose=1)
+        print(test_predictions.shape)
+        np.save('cache/keras/classifier_pred_tmp.csv', merge_predictions)
+        os.rename('cache/keras/classifier_pred_tmp.csv', self.output().path)

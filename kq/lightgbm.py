@@ -43,7 +43,6 @@ class SVMData(luigi.Task):
         if self.data_subset in {'train', 'valid', 'merge'}:
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
             vecs = self.data_source.load()[ix]
-            vecs = vecs[:, :vecs.shape[1]//2]
             qvecs = shared_words.QuestionVector().load()[ix]
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
@@ -215,14 +214,10 @@ class GBMClassifier(luigi.Task):
     valid_data=cache/svm_data/valid.svm
     output_model=cache/lightgbm/gbm_model
 
-    learning_rate = 0.01
+    learning_rate = 0.05
     num_trees = 1000
     num_leaves = 1024
     scale_pos_weight = 0.46
-    is_unbalance=true
-
-    bagging_freq = 3
-    bagging_fraction = 0.8
 
     is_enable_sparse = true
     use_two_round_loading = false
@@ -270,13 +265,14 @@ class XGBlassifier(luigi.Task):
     objective = binary:logistic
     eval_metric=logloss
     
-    eta = 0.1
-    max_depth = 7
+    eta = 0.05
+    max_depth = 11
     scale_pos_weight=0.46
+    early_stop_round = 10
     
     subsample=0.8
     
-    num_round = 1000
+    num_round = 250
     save_period = 0
     data = "cache/svm_data/train.svm"
     eval[test] = "cache/svm_data/valid.svm"

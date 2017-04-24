@@ -125,15 +125,23 @@ class CharsDistance(DistanceBase):
     def name(self):
         return 'char_dist'
 
-class AllDistances:
-    @staticmethod
-    def requires():
+class AllDistances(luigi.Task):
+    def requires(self):
         yield JaccardDistance()
         yield LevenshteinDistance1()
         yield LevenshteinDistance2()
         yield SorensenDistance()
         yield WordsDistance()
         yield CharsDistance()
+
+    def complete(self):
+        for r in self.requires():
+            if not r.complete():
+                return False
+        return True
+
+    def run(self):
+        pass
 
     def load(self):
         all_train, all_merge, all_valid = [], [], []

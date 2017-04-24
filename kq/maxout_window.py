@@ -70,18 +70,22 @@ class MaxoutTask(luigi.Task):
     def dataset_iterator(self, dataset, requires_grad=True):
         def vectorize(words):
             res = np.zeros([1, 300, self.max_words])
-            for ix, word in enumerate(self.English(' '.join(words))):
-                if ix == self.max_words:
+            j = 0
+            for word in self.English(words):
+                if word.is_stop or word.is_punct:
+                    continue
+                if j >= self.max_words:
                     break
-                res[:, :, ix] = word.vector
+                res[:, :, j] = word.vector
+                j += 1
             return res
 
         traverse_order = np.random.permutation(dataset.shape[0])
         for ix in range(0, dataset.shape[0], self.batch_size):
             ixs = traverse_order[ix:ix + self.batch_size]
             q = dataset.iloc[ixs]
-            X1 = q.question1.apply(vectorize).values
-            X2 = q.question2.apply(vectorize).values
+            X1 = q.question1.fillna('').apply(vectorize).values
+            X2 = q.question2.fillna('').apply(vectorize).values
             y = q.is_duplicate.values
             weight = np.zeros(self.batch_size, dtype=np.float32)
             for i, v in enumerate(y):
@@ -103,6 +107,7 @@ class MaxoutTask(luigi.Task):
         maxout = SiameseMaxout()
         opt = torch.optim.Adam(maxout.parameters())
         test_loss = 0
+        train_loss = None
 
         for i in range(self.epochs):
             bar = tqdm(itertools.islice(self.dataset_iterator(train, True), 1024), total=1024)
@@ -110,7 +115,11 @@ class MaxoutTask(luigi.Task):
                 opt.zero_grad()
                 pred = maxout(v1, v2)
                 loss = torch.nn.BCELoss(weight=w)(pred, y)
-                bar.set_description('%f -- %f' % (loss.data.numpy()[0], test_loss))
+                if train_loss is None:
+                    train_loss = loss.data.numpy()[0]
+                else:
+                    train_loss = 0.9 * train_loss + 0.1 * loss.data.numpy()[0]
+                bar.set_description('%f -- %f' % (train_loss, test_loss))
                 loss.backward()
                 opt.step()
             bar = tqdm(itertools.islice(self.dataset_iterator(valid, False), 32), total=32)
@@ -120,4 +129,3 @@ class MaxoutTask(luigi.Task):
                 loss = torch.nn.BCELoss(weight=w)(pred, y)
                 losses.append(loss.data.numpy()[0])
             test_loss = np.mean(losses)
-
