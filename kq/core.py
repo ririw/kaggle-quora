@@ -1,5 +1,6 @@
 import pandas
 import numpy as np
+import sklearn
 
 
 class MergableFeatures:
@@ -29,3 +30,20 @@ class MergableFeatures:
 
 
 weights = np.array([1.309028344, 0.472001959])
+
+def score_data(y_true, y_pred):
+    global weights
+    y_pred = np.asarray(y_pred)
+    if len(y_pred.shape) == 2:
+        if y_pred.shape[1] == 1:
+            y_pred = y_pred[:, 0]
+        elif y_pred.shape[1] == 2:
+            y_pred = y_pred[:, 1]
+        else:
+            assert y_pred.shape[1] <= 2, 'Unexpected shape: ' + str(y_pred.shape)
+
+    print(y_pred)
+    weights = weights[y_true]
+    loss = sklearn.metrics.log_loss(y_true, y_pred, sample_weight=weights)
+
+    return loss

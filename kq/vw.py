@@ -156,8 +156,7 @@ class VWClassifier(luigi.Task):
         print(colors.green | "prediction sample...")
         print(colors.green | str(pred.head()))
         y = dataset.Dataset().load()[2]
-        weights = np.array([1.309028344, 0.472001959])[y.is_duplicate.values]
-        loss = metrics.log_loss(y.is_duplicate, pred.is_duplicate, sample_weight=weights)
+        loss = core.score_data(y.is_duplicate, pred)
         print(colors.green | "Performance: " + str(loss))
 
         return pred

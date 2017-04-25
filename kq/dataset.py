@@ -140,3 +140,17 @@ class Dataset(luigi.Task):
             return test_data.head(only_get)
         else:
             return test_data
+
+    def load_named(self, name, only_get=None):
+        data_file = {
+            'train':'cache/dataset-train.msg',
+            'merge':'cache/dataset-merge.msg',
+            'valid':'cache/dataset-valid.msg',
+            'test':'cache/dataset-test.msg',
+        }[name]
+
+        res = pandas.read_msgpack(data_file)
+        if only_get is None:
+            return res
+        else:
+            return res.head(only_get)
