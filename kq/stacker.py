@@ -1,10 +1,12 @@
+from collections import OrderedDict
+
 import luigi
 import pandas
 import numpy as np
 from plumbum import colors
 
 from kq import core
-from kq.keras import KerasModel
+from kq.keras import KerasModel, KaggleKeras
 from kq.xtc import XTCClassifier
 from kq.dataset import Dataset
 from kq.lightgbm import XGBlassifier, GBMClassifier
@@ -19,9 +21,10 @@ class Stacks(luigi.Task):
         yield XGBlassifier()
         yield GBMClassifier()
         yield VWClassifier()
-        #yield NaiveBayesClassifier()
+        yield NaiveBayesClassifier()
         yield XTCClassifier()
         yield KerasModel()
+        yield KaggleKeras()
 
     def output(self):
         return luigi.LocalTarget('cache/stacked_pred.csv')
@@ -33,11 +36,11 @@ class Stacks(luigi.Task):
         return self.output().exists()
 
     def run(self):
-        data = {}
+        data = OrderedDict()
         for r in self.requires():
             x = r.load().squeeze()
             data[r.__class__.__name__] = x
-        data = pandas.DataFrame(data)
+        data = pandas.DataFrame(data)[list(data.keys())]
         data['is_duplicate'] = Dataset().load()[1].is_duplicate
         X = data.drop('is_duplicate', 1).values
         y = data.is_duplicate.values
@@ -64,12 +67,12 @@ class Stacks(luigi.Task):
         X = polytransform.transform(X)
         cls.fit(X, y, sample_weight=weights)
 
-        data = {}
+        data = OrderedDict()
         for r in self.requires():
             x = r.load_test().squeeze()
             data[r.__class__.__name__] = x
-            #print(r.__class__.__name__, x.shape)
-        data = pandas.DataFrame(data)
+            #print(r.__class__.__name__, '\t', x.shape, type(x))
+        data = pandas.DataFrame.from_dict(data)[list(data.keys())]
         X = data.values
         X = polytransform.transform(X)
         index = pandas.Index(np.arange(X.shape[0]), name='test_id')

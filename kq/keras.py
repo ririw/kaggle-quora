@@ -1,19 +1,21 @@
+import glob
+
 import keras
 import nltk
+import pandas
 import spacy
 import numpy as np
 from plumbum import colors
 import os
-from collections import Counter
 from kq import core, dataset
 import luigi
 
 class DatasetIterator:
-    def __init__(self, tokenizer, stemmer, English, dataset, vec_len, batch_size=128):
+    def __init__(self, train_mode, tokenizer, English, dataset, vec_len, batch_size=128):
+        self.train_mode = train_mode
         self.vec_len = vec_len
         self.dataset = dataset
         self.English = English
-        self.stemmer = stemmer
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.batch = 0
@@ -28,16 +30,18 @@ class DatasetIterator:
 
     def text_transform(self, text):
         tokens = self.tokenizer.tokenize(text.lower())
-        subtokens = [self.stemmer.stem(w) for w in tokens]
         vecs = np.zeros((1, self.vec_len, 300))
         i = 0
-        for tok in subtokens:
+        for tok in tokens:
             lex = self.English.vocab[tok]
             if not lex.is_oov and not lex.is_punct and not lex.is_stop:
                 vecs[0, i, :] = lex.vector
                 i += 1
             if i == self.vec_len:
                 break
+        if i < self.vec_len:
+            # Move the zeros to the beginning of the sequence.
+            np.roll(vecs, self.vec_len, 1)
         return vecs
 
     def __next__(self):
@@ -53,15 +57,18 @@ class DatasetIterator:
             v1 = np.concatenate(batch_data.question1_raw.apply(self.text_transform).values, 0).astype(np.float32)
             v2 = np.concatenate(batch_data.question2_raw.apply(self.text_transform).values, 0).astype(np.float32)
             y = batch_data.is_duplicate.astype(np.int32).values
+            weights = core.weights[y]
         except ValueError:
             import ipdb; ipdb.set_trace()
-
-        return [v1, v2], y
+        if self.train_mode:
+            return [v1, v2], y, weights
+        else:
+            return [v1, v2]
 
 
 class KerasModel(luigi.Task):
     vec_len = 31
-    nb_epoch = 1000
+    nb_epoch = 1
 
     def requires(self):
         return dataset.Dataset()
@@ -71,33 +78,19 @@ class KerasModel(luigi.Task):
 
 
     def model(self):
-        nb_words = min(MAX_NB_WORDS, len(word_index)) + 1
-        embedding_matrix = np.zeros((nb_words, 300))
-        for ix, word in enumerate(self.vocab):
-            lex = self.en.vocab[word]
-            if not lex.is_oov:
-                embedding_matrix[ix] = lex.vector
-        print('Null word embeddings: %d' % np.sum(np.sum(embedding_matrix, axis=1) == 0))
-
-
         num_lstm = np.random.randint(175, 275)
         num_dense = np.random.randint(100, 150)
         rate_drop_lstm = 0.15 + np.random.rand() * 0.25
         rate_drop_dense = 0.15 + np.random.rand() * 0.25
 
-        embedding_layer = keras.layers.Embedding(
-            nb_words, 300, weights=[embedding_matrix],
-            input_length=self.vec_len, trainable=False)
         lstm_layer = keras.layers.LSTM(
             num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
 
-        sequence_1_input = keras.layers.Input(shape=(self.vec_len,), dtype=int32)
-        embedded_sequences_1 = embedding_layer(sequence_1_input)
-        x1 = lstm_layer(embedded_sequences_1)
+        sequence_1_input = keras.layers.Input(shape=(self.vec_len, 300))
+        x1 = lstm_layer(sequence_1_input)
 
-        sequence_2_input = keras.layers.Input(shape=(self.vec_len,), dtype=int32)
-        embedded_sequences_2 = embedding_layer(sequence_1_input)
-        x2 = lstm_layer(embedded_sequences_2)
+        sequence_2_input = keras.layers.Input(shape=(self.vec_len, 300))
+        x2 = lstm_layer(sequence_2_input)
 
         merged = keras.layers.concatenate([x1, x2])
         merged = keras.layers.Dropout(rate_drop_dense)(merged)
@@ -114,56 +107,55 @@ class KerasModel(luigi.Task):
 
         return model
 
-    def top_words(self, max_words=200000):
-        word_counter = Counter()
-        train = dataset.Dataset().load_named('train')
-        test = dataset.Dataset().load_named('test')
-        all_questions = np.concatenate([
-            train.question1_raw.values,
-            train.question2_raw.values,
-            test.question1_raw.values,
-            test.question2_raw.values,
-        ])
-        for sent in all_questions:
-            tokens = self.tokenizer.tokenize(sent.lower())
-            for w in [self.stemmer.stem(w) for w in tokens]:
-                word_counter[w] += 1
-        return [w[0] for w in word_counter.most_common(max_words)]
-
     def run(self):
         self.output().makedirs()
         self.tokenizer = nltk.TreebankWordTokenizer()
-        self.stemmer = nltk.SnowballStemmer('english')
         self.en = spacy.en.English()
 
-        self.vocab = self.top_words()
 
-        early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
+        early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
 
         model = self.model()
 
         valid_data = dataset.Dataset().load_named('valid')
         train_data = dataset.Dataset().load_named('train')
-        train_iter = DatasetIterator(self.tokenizer, self.stemmer, self.en, train_data, self.vec_len)
-        valid_iter = DatasetIterator(self.tokenizer, self.stemmer, self.en, valid_data, self.vec_len)
+        train_iter = DatasetIterator(True, self.tokenizer, self.en, train_data, self.vec_len)
+        valid_iter = DatasetIterator(True, self.tokenizer, self.en, valid_data, self.vec_len)
 
         hist = model.fit_generator(train_iter, len(train_iter) // 5,
                                    self.nb_epoch, callbacks=[early_stopping],
                                    validation_steps=32, validation_data=valid_iter)
 
-        valid_iter = DatasetIterator(self.tokenizer, self.stemmer, self.en, valid_data, self.vec_len)
-        valid_pred = model.predict_generator(valid_iter, len(valid_iter))
+        valid_iter = DatasetIterator(False, self.tokenizer, self.en, valid_data, self.vec_len)
+        valid_len = len(valid_iter)
+        valid_pred = model.predict_generator(valid_iter, valid_len)
         loss = core.score_data(valid_data.is_duplicate, valid_pred)
-        print(colors.green | "Performance: " + str(loss))
+        print(colors.green | "Performance (single): " + str(loss))
+
+        valid_iter = DatasetIterator(False, self.tokenizer, self.en, valid_data, self.vec_len)
+        valid_pred += model.predict_generator(map(lambda a: (a[1], a[0]), valid_iter), valid_len)
+        valid_pred = valid_pred / 2
+        loss = core.score_data(valid_data.is_duplicate, valid_pred)
+        print(colors.green | colors.bold | "Performance (doubleback): " + str(loss))
 
 
-        merge_iter = DatasetIterator(self.tokenizer, self.stemmer, self.en, dataset.Dataset().load_named('merge'), self.vec_len)
-        merge_pred = model.predict_generator(merge_iter, len(merge_iter), verbose=1)[:, 0]
+        merge_iter = DatasetIterator(False, self.tokenizer, self.en, dataset.Dataset().load_named('merge'), self.vec_len)
+        merge_len = len(merge_iter)
+        merge_pred1 = model.predict_generator(merge_iter, merge_len, verbose=1)[:, 0]
+        merge_iter = map(
+            lambda a: (a[1], a[0]),
+            DatasetIterator(False, self.tokenizer, self.en, dataset.Dataset().load_named('merge'), self.vec_len))
+        merge_pred2 = model.predict_generator(merge_iter, merge_len, verbose=1)[:, 0]
+        merge_pred = (merge_pred1 + merge_pred2) / 2
 
         np.save('cache/keras/merge.npy', merge_pred)
 
-        test_iter = DatasetIterator(self.tokenizer, self.stemmer, self.en, dataset.Dataset().load_named('test'), self.vec_len)
-        test_pred = model.predict_generator(merge_iter, len(test_iter), verbose=1)[:, 0]
+        test_iter = DatasetIterator(False, self.tokenizer, self.en, dataset.Dataset().load_named('test'), self.vec_len)
+        test_len = len(test_iter)
+        test_pred = model.predict_generator(test_iter, test_len, verbose=1)[:, 0]
+        test_iter = DatasetIterator(False, self.tokenizer, self.en, dataset.Dataset().load_named('test'), self.vec_len)
+        test_pred += model.predict_generator(test_iter, test_len, verbose=1)[:, 0]
+        test_pred = test_pred / 2
 
         np.save('cache/keras/classifications_tmp.npy', test_pred)
         os.rename('cache/keras/classifications_tmp.npy', 'cache/keras/classifications.npy')
@@ -177,3 +169,20 @@ class KerasModel(luigi.Task):
     def load_test():
         assert KerasModel().complete()
         return np.load('cache/keras/classifications.npy')
+
+
+class KaggleKeras(luigi.Task):
+    def complete(self):
+        return len(glob.glob('cache/kagglekeras/*.csv')) > 0
+
+    def load(self):
+        assert self.complete()
+        return np.load('cache/kagglekeras/merge.npy')
+
+    def load_test(self):
+        assert self.complete()
+        cols = []
+        for csv in glob.glob('cache/kagglekeras/*.csv'):
+            cols.append(pandas.read_csv(csv).is_duplicate.values[:, None])
+        mat = np.concatenate(cols, 1)
+        return mat.mean(1)
