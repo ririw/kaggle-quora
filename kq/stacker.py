@@ -23,7 +23,7 @@ class Stacks(luigi.Task):
         yield VWClassifier()
         yield NaiveBayesClassifier()
         yield XTCClassifier()
-        yield KerasLSTMModel()
+        #yield KerasLSTMModel()
         yield KaggleKeras()
 
     def output(self):
@@ -59,7 +59,6 @@ class Stacks(luigi.Task):
             w_train, w_test = weights[train_index], weights[test_index]
             cls.fit(X_train, y_train, sample_weight=w_train)
             score = metrics.log_loss(y_test, cls.predict_proba(X_test), sample_weight=w_test)
-            print(score)
             scores.append(score)
         print(colors.yellow | '!----++++++----!')
         print(colors.yellow | colors.bold | '|' + str(np.mean(scores)) + '|')

@@ -10,6 +10,7 @@ from tqdm import tqdm
 
 from kq import dataset
 
+__all__ = ['KaggleDataset']
 
 class KaggleDataset(luigi.Task):
     MAX_SEQUENCE_LENGTH = 32
@@ -172,12 +173,19 @@ class KaggleDataset(luigi.Task):
         with self.output().open('w'):
             pass
 
-    def load(self, name):
+    def load(self, name, load_only=None):
         assert self.complete()
         assert name in {'train', 'test', 'valid', 'merge'}
         f1 = np.load('cache/kaggledata/%s_1.npy' % name, mmap_mode='r')
         f2 = np.load('cache/kaggledata/%s_2.npy' % name, mmap_mode='r')
-        l = np.load('cache/kaggledata/%s_labels.npy' % name, mmap_mode='r')
+        if name == 'test':
+            l = np.zeros(f2.shape[0]) - 1
+        else:
+            l = np.load('cache/kaggledata/%s_labels.npy' % name, mmap_mode='r')
+        if load_only:
+            f1 = f1[:load_only]
+            f2 = f2[:load_only]
+            l = l[:load_only]
 
         return ([f1, f2], l)
 
