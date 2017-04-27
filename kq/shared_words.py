@@ -49,7 +49,7 @@ class Vocab(luigi.Task):
         self.output().makedirs()
         vocab_counts.to_msgpack(self.output().path)
 
-    def load_vocab(self, min_occurances=10):
+    def load_vocab(self, min_occurances=10, max_words=None):
         assert self.complete()
         vocab_counts = pandas.read_msgpack('./cache/vocab.msg')
         admissible_vocab = vocab_counts[vocab_counts > min_occurances].copy()

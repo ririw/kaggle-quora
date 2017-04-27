@@ -6,7 +6,7 @@ import numpy as np
 from plumbum import colors
 
 from kq import core
-from kq.keras import KerasModel, KaggleKeras
+from kq.keras import KaggleKeras, KerasLSTMModel
 from kq.xtc import XTCClassifier
 from kq.dataset import Dataset
 from kq.lightgbm import XGBlassifier, GBMClassifier
@@ -23,7 +23,7 @@ class Stacks(luigi.Task):
         yield VWClassifier()
         yield NaiveBayesClassifier()
         yield XTCClassifier()
-        yield KerasModel()
+        yield KerasLSTMModel()
         yield KaggleKeras()
 
     def output(self):
