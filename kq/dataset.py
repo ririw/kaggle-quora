@@ -11,8 +11,6 @@ import pandas
 import re
 
 import spacy
-from nltk import SnowballStemmer
-from nltk.corpus import stopwords
 from tqdm import tqdm
 
 English = None

@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix
+from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix, wordmat_distance
 
 
 class SVMData(luigi.Task):
@@ -22,6 +22,7 @@ class SVMData(luigi.Task):
         yield distances.AllDistances()
         yield shared_entites.SharedEntities()
         yield tfidf_matrix.TFIDFFeature()
+        yield wordmat_distance.WordMatDistance()
 
     def complete(self):
         if self.data_subset == 'test':
@@ -35,7 +36,7 @@ class SVMData(luigi.Task):
             return True
         else:
             return os.path.exists('cache/svm_data/%s.svm' % self.data_subset)
-    
+
     def run(self):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
         if self.data_subset in {'train', 'valid', 'merge'}:
@@ -44,49 +45,62 @@ class SVMData(luigi.Task):
             qvecs = shared_words.QuestionVector().load()[ix]
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
+            wmvecs = wordmat_distance.WordMatDistance().load(self.data_subset)
             labels = dataset.Dataset().load()[ix].is_duplicate.values
-            print('vecs: ' + str(vecs.shape))
-            print('qvecs: ' + str(qvecs.shape))
-            print('dvecs: ' + str(dvecs.shape))
-            print('evecs: ' + str(evecs.shape))
-            print('labels: ' + str(labels.shape))
         else:
             vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
             qvecs = shared_words.QuestionVector().load_test()
             dvecs = distances.AllDistances().load_test()
             evecs = shared_entites.SharedEntities().load_test()
+            wmvecs = wordmat_distance.WordMatDistance().load('test')
             labels = np.zeros(qvecs.shape[0], dtype='uint8')
 
         qvec_offset = 1
         dvec_offset = qvecs.shape[1]
         evec_offset = dvec_offset + dvecs.shape[1]
-        vecs_offset = evec_offset + evecs.shape[1]
+        wmvec_offset = evec_offset + evecs.shape[1]
+        vecs_offset = wmvec_offset + wmvecs.shape[1]
 
-        def write_row(i, f):
+        def write_row(i, f1, f2, f3):
             row = vecs[i]
             qvec = np.nan_to_num(qvecs[i])
             dvec = np.nan_to_num(dvecs[i])
             evec = np.nan_to_num(evecs[i])
+            wmvec = np.nan_to_num(wmvecs[i])
             label = labels[i]
 
             qvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(qvec, start=qvec_offset))
             dvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(dvec, start=dvec_offset))
             evec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(evec, start=evec_offset))
+            wmvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(wmvec, start=wmvec_offset))
             entries = " ".join(("%d:%.2f" % (ind + vecs_offset, data) for ind, data in zip(row.indices, row.data)))
-            f.write("%d %s %s %s %s\n" % (label, qvec_entries, dvec_entries, evec_entries, entries))
-            #f.write("%d %s %s\n" % (label, qvec_entries, dvec_entries))
+            f1.write("%d %s %s %s %s %s\n" % (label, qvec_entries, dvec_entries, evec_entries, wmvec_entries, entries))
+            f2.write('%d %s %s %s %s\n' % (label, qvec_entries, dvec_entries, evec_entries, wmvec_entries))
+            f3.write('%d %s\n' % (label, wmvec_entries))
 
         os.makedirs('cache/svm_data', exist_ok=True)
         if self.data_subset == 'test':
             for start_ix in tqdm(self.test_target_indexes(vecs.shape[0])):
-                with open('cache/svm_data/test_%d_tmp.svm' % start_ix, 'w') as f:
-                    for i in range(start_ix, min(start_ix+self.max_size, vecs.shape[0])):
-                        write_row(i, f)
+                with open('cache/svm_data/test_%d_tmp.svm' % start_ix, 'w') as f1, \
+                     open('cache/svm_data/test_simple_%d_tmp.svm' % start_ix, 'w') as f2, \
+                     open('cache/svm_data/test_words_%d_tmp.svm' % start_ix, 'w') as f3:
+                    for i in range(start_ix, min(start_ix + self.max_size, vecs.shape[0])):
+                        write_row(i, f1, f2, f3)
+                os.rename('cache/svm_data/test_simple_%d_tmp.svm' % start_ix,
+                          'cache/svm_data/test_simple_%d.svm' % start_ix)
+                os.rename('cache/svm_data/test_words_%d_tmp.svm' % start_ix,
+                          'cache/svm_data/test_words_%d.svm' % start_ix)
                 os.rename('cache/svm_data/test_%d_tmp.svm' % start_ix, 'cache/svm_data/test_%d.svm' % start_ix)
         else:
-            with open('cache/svm_data/%s_tmp.svm' % self.data_subset, 'w') as f:
+            with open('cache/svm_data/%s_tmp.svm' % self.data_subset, 'w') as f1, \
+                 open('cache/svm_data/%s_tmp_simple.svm' % self.data_subset, 'w') as f2, \
+                 open('cache/svm_data/%s_tmp_words.svm' % self.data_subset, 'w') as f3:
                 for i in tqdm(range(qvecs.shape[0]), desc='writing %s data' % self.data_subset):
-                    write_row(i, f)
+                    write_row(i, f1, f2)
+            os.rename('cache/svm_data/%s_tmp_simple.svm' % self.data_subset,
+                      'cache/svm_data/%s_simple.svm' % self.data_subset)
+            os.rename('cache/svm_data/%s_tmp_words.svm' % self.data_subset,
+                      'cache/svm_data/%s_words.svm' % self.data_subset)
             os.rename('cache/svm_data/%s_tmp.svm' % self.data_subset, 'cache/svm_data/%s.svm' % self.data_subset)
 
     @staticmethod
@@ -106,8 +120,10 @@ class TrainSVMData(SVMData):
 class ValidSVMData(SVMData):
     data_subset = 'valid'
 
+
 class MergeSVMData(SVMData):
     data_subset = 'merge'
+
 
 class TestSVMData(SVMData):
     data_subset = 'test'
@@ -261,19 +277,17 @@ class XGBlassifier(luigi.Task):
     train_conf = """
     booster = gbtree
     objective = binary:logistic
-    eval_metric=logloss
+    #eval_metric=logloss
     
-    eta = 0.05
-    max_depth = 11
+    eta = 0.1
+    max_depth = 7
     scale_pos_weight=0.46
     early_stop_round = 10
     
-    subsample=0.8
-    
     num_round = 250
     save_period = 0
-    data = "cache/svm_data/train.svm"
-    eval[test] = "cache/svm_data/valid.svm"
+    data = "cache/svm_data/train_simple.svm"
+    eval[test] = "cache/svm_data/valid_simple.svm"
     model_out = "cache/xgb/model"
     nthread=4
     """
@@ -286,7 +300,6 @@ class XGBlassifier(luigi.Task):
         pred = pandas.read_csv('./cache/xgb/preds.csv', names=['is_duplicate'])
         pred.index = pred.index.rename('test_id')
         return pred
-
 
     def valid(self):
         pred = self.pred_simple_target('valid')
@@ -306,7 +319,7 @@ class XGBlassifier(luigi.Task):
     valid_conf = """
     task = pred
     model_in = "cache/xgb/model"
-    test:data = "cache/svm_data/%s.svm"
+    test:data = "cache/svm_data/%s_simple.svm"
     name_pred = "cache/xgb/preds.csv"
     """
 
@@ -332,7 +345,7 @@ class XGBlassifier(luigi.Task):
     test_conf = """
         task = pred
         model_in = "cache/xgb/model"
-        test:data = "cache/svm_data/test_%d.svm"
+        test:data = "cache/svm_data/test_simple_%d.svm"
         name_pred = "cache/xgb/test_preds_%d.csv"
         """
 

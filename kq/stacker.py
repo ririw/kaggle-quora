@@ -5,9 +5,8 @@ import pandas
 import numpy as np
 from plumbum import colors
 
-from kq import core
+from kq import core, xtc
 from kq.keras import KaggleKeras, KerasLSTMModel
-from kq.xtc import XTCClassifier
 from kq.dataset import Dataset
 from kq.lightgbm import XGBlassifier, GBMClassifier
 from kq.vw import VWClassifier
@@ -22,7 +21,8 @@ class Stacks(luigi.Task):
         yield GBMClassifier()
         yield VWClassifier()
         yield NaiveBayesClassifier()
-        yield XTCClassifier()
+        yield xtc.XTCComplexClassifier()
+        yield xtc.XTCSimpleClassifier()
         #yield KerasLSTMModel()
         yield KaggleKeras()
 
@@ -49,7 +49,10 @@ class Stacks(luigi.Task):
         scores = []
         cls = linear_model.LogisticRegression()
 
-        polytransform = preprocessing.PolynomialFeatures(3)
+        cls.fit(X, y)
+        print(pandas.Series(cls.coef_[0], [type(r) for r in self.requires()]))
+
+        polytransform = preprocessing.PolynomialFeatures(2)
         for train_index, test_index in model_selection.KFold(n_splits=10).split(X, y):
             X_train, X_test = X[train_index], X[test_index]
             X_train = polytransform.fit_transform(X_train)
@@ -59,10 +62,12 @@ class Stacks(luigi.Task):
             w_train, w_test = weights[train_index], weights[test_index]
             cls.fit(X_train, y_train, sample_weight=w_train)
             score = metrics.log_loss(y_test, cls.predict_proba(X_test), sample_weight=w_test)
+            print(score)
             scores.append(score)
         print(colors.yellow | '!----++++++----!')
         print(colors.yellow | colors.bold | '|' + str(np.mean(scores)) + '|')
         print(colors.yellow | '¡----++++++----¡')
+
         X = polytransform.transform(X)
         cls.fit(X, y, sample_weight=weights)
 

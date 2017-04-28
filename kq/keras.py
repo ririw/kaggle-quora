@@ -1,16 +1,12 @@
 import glob
-import os
-import uuid
 
 import keras
 import luigi
-import nltk
 import numpy as np
 import pandas
-import spacy
 from plumbum import colors
 
-from kq import core, dataset, keras_kaggle_data
+from kq import core, keras_kaggle_data
 
 
 class KerasModel(luigi.Task):
@@ -124,8 +120,10 @@ class KerasLSTMModel(KerasModel):
         rate_drop_lstm = 0.15 + np.random.rand() * 0.25
         rate_drop_dense = 0.15 + np.random.rand() * 0.25
 
-        lstm_layer1 = keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm, return_sequences=True)
-        lstm_layer2 = keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+
+        lstm_layer1 = keras.layers.Bidirectional(
+            keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+        )
 
         embedding_layer = keras.layers.Embedding(
             embedding_matrix.shape[0], embedding_matrix.shape[1],
@@ -134,14 +132,12 @@ class KerasLSTMModel(KerasModel):
         sequence_1_input = keras.layers.Input(shape=[vec_len], dtype='int32')
         embed_1 = embedding_layer(sequence_1_input)
         x1 = lstm_layer1(embed_1)
-        x2 = lstm_layer2(x1)
 
         sequence_2_input = keras.layers.Input(shape=[vec_len], dtype='int32')
         embed_2 = embedding_layer(sequence_2_input)
         y1 = lstm_layer1(embed_2)
-        y2 = lstm_layer2(y1)
 
-        merged = keras.layers.concatenate([x2, y2])
+        merged = keras.layers.concatenate([x1, y1])
         merged = keras.layers.Dropout(rate_drop_dense)(merged)
         merged = keras.layers.BatchNormalization()(merged)
 

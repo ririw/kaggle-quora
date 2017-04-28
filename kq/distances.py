@@ -109,6 +109,7 @@ class SorensenDistance(DistanceBase):
     def name(self):
         return 'sorensen'
 
+
 class WordsDistance(DistanceBase):
     def dist_fn(self, xs, ys):
         return abs(len(xs) - len(ys))
@@ -117,6 +118,7 @@ class WordsDistance(DistanceBase):
     def name(self):
         return 'word_dist'
 
+
 class CharsDistance(DistanceBase):
     def dist_fn(self, xs, ys):
         return abs(sum((len(x) for x in xs)) - sum((len(y) for y in ys)))
@@ -124,6 +126,7 @@ class CharsDistance(DistanceBase):
     @property
     def name(self):
         return 'char_dist'
+
 
 class AllDistances(luigi.Task):
     def requires(self):

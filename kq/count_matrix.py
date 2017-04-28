@@ -35,7 +35,7 @@ class CountFeature(luigi.Task):
         q1 = transformed_tokens[:transformed_tokens.shape[0]//2]
         q2 = transformed_tokens[transformed_tokens.shape[0]//2:]
 
-        return sp.hstack([q1 + q2, q1.multiply(q2), np.abs(q1 - q2)])
+        return sp.hstack([q1 + q2, q1.multiply(q2), np.abs(q1 - q2)]), q1, q2
 
     def transform(self, X):
         tokens1 = X.question1_raw.apply(self.vectorize_question)
@@ -46,7 +46,7 @@ class CountFeature(luigi.Task):
         q1 = transformed_tokens[:transformed_tokens.shape[0] // 2]
         q2 = transformed_tokens[transformed_tokens.shape[0] // 2:]
 
-        return sp.hstack([q1 + q2, q1.multiply(q2), np.abs(q1 - q2)])
+        return sp.hstack([q1 + q2, q1.multiply(q2), np.abs(q1 - q2)]), q1, q2
 
     def run(self):
         self.output().makedirs()
@@ -57,24 +57,33 @@ class CountFeature(luigi.Task):
         train, merge, valid = Dataset().load()
 
         logging.info('Vectorizing train')
-        train_mat = self.fit(train)
+        train_mat, q1, q2 = self.fit(train)
         scipy.io.mmwrite('cache/count/train.mtx', train_mat)
+        scipy.io.mmwrite('cache/count/train_q1.mtx', q1)
+        scipy.io.mmwrite('cache/count/train_q2.mtx', q2)
         del train, train_mat
 
         logging.info('Vectorizing valid')
-        valid_mat = self.transform(valid)
+        valid_mat, q1, q2 = self.transform(valid)
         scipy.io.mmwrite('cache/count/valid.mtx', valid_mat)
+        scipy.io.mmwrite('cache/count/valid_q1.mtx', q1)
+        scipy.io.mmwrite('cache/count/valid_q2.mtx', q2)
+
         del valid, valid_mat
 
         logging.info('Vectorizing merge')
-        merge_mat = self.transform(merge)
+        merge_mat, q1, q2 = self.transform(merge)
         scipy.io.mmwrite('cache/count/merge.mtx', merge_mat)
+        scipy.io.mmwrite('cache/count/merge_q1.mtx', q1)
+        scipy.io.mmwrite('cache/count/merge_q2.mtx', q2)
         del merge, merge_mat
 
         logging.info('Vectorizing test')
         test = Dataset().load_test()
-        test_mat = self.transform(test)
+        test_mat, q1, q2 = self.transform(test)
         scipy.io.mmwrite('cache/count/test.mtx', test_mat)
+        scipy.io.mmwrite('cache/count/test_q1.mtx', q1)
+        scipy.io.mmwrite('cache/count/test_q2.mtx', q2)
 
         with self.output().open('w') as f:
             pass
@@ -105,3 +114,20 @@ class CountFeature(luigi.Task):
             return scipy.io.mmread('cache/count/merge.mtx').tocsr()
         elif name == 'test':
             return scipy.io.mmread('cache/count/test.mtx').tocsr()
+
+    @staticmethod
+    def load_full_mats(name):
+        assert name in {'train', 'merge', 'valid', 'test'}, 'Name %s was not one of train/test/merge/valid' % name
+        if name == 'train':
+            q1 = scipy.io.mmread('cache/count/train_q1.mtx').tocsr()
+            q2 = scipy.io.mmread('cache/count/train_q2.mtx').tocsr()
+        elif name == 'valid':
+            q1 = scipy.io.mmread('cache/count/valid_q1.mtx').tocsr()
+            q2 = scipy.io.mmread('cache/count/valid_q2.mtx').tocsr()
+        elif name == 'merge':
+            q1 = scipy.io.mmread('cache/count/merge_q1.mtx').tocsr()
+            q2 = scipy.io.mmread('cache/count/merge_q2.mtx').tocsr()
+        elif name == 'test':
+            q1 = scipy.io.mmread('cache/count/test_q1.mtx').tocsr()
+            q2 = scipy.io.mmread('cache/count/test_q2.mtx').tocsr()
+        return q1, q2
