@@ -28,7 +28,7 @@ from string import punctuation
 from gensim.models import KeyedVectors
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
-from keras.layers import Dense, Input, LSTM, Embedding, Dropout, Activation
+from keras.layers import Dense, Input, LSTM, Embedding, Dropout, Activation, Bidirectional
 from keras.layers.merge import concatenate
 from keras.models import Model
 from keras.layers.normalization import BatchNormalization
@@ -223,7 +223,7 @@ embedding_layer = Embedding(nb_words,
         weights=[embedding_matrix],
         input_length=MAX_SEQUENCE_LENGTH,
         trainable=False)
-lstm_layer = LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+lstm_layer = Bidirectional(LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm))
 
 sequence_1_input = Input(shape=(MAX_SEQUENCE_LENGTH,), dtype='int32')
 embedded_sequences_1 = embedding_layer(sequence_1_input)
@@ -262,7 +262,7 @@ model.compile(loss='binary_crossentropy',
 model.summary()
 print(STAMP)
 
-early_stopping =EarlyStopping(monitor='val_loss', patience=3)
+early_stopping = EarlyStopping(monitor='val_loss', patience=3)
 bst_model_path = 'cache/kagglekeras/' + STAMP + '.h5'
 model_checkpoint = ModelCheckpoint(bst_model_path, save_best_only=True, save_weights_only=True)
 
@@ -271,7 +271,7 @@ hist = model.fit([train_data_1, train_data_2], train_labels,
         epochs=200, batch_size=2048, shuffle=True,
         class_weight=class_weight, callbacks=[early_stopping, model_checkpoint])
 
-#model.load_weights(bst_model_path)
+model.load_weights(bst_model_path)
 bst_val_score = min(hist.history['val_loss'])
 
 ########################################

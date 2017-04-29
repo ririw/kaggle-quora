@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix, wordmat_distance
+from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix, wordmat_distance, count_matrix
 
 
 class VWData(luigi.Task):
@@ -41,14 +41,16 @@ class VWData(luigi.Task):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
         if self.data_subset in {'train', 'valid', 'merge'}:
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
-            vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
+            #vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
+            vecs = count_matrix.CountFeature.load_dataset(self.data_subset)
             qvecs = shared_words.QuestionVector().load()[ix]
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
             wmvecs = wordmat_distance.WordMatDistance().load(self.data_subset)
             labels = dataset.Dataset().load()[ix].is_duplicate.values
         else:
-            vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
+            #vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
+            vecs = count_matrix.CountFeature.load_dataset('test')
             qvecs = shared_words.QuestionVector().load_test()
             dvecs = distances.AllDistances().load_test()
             evecs = shared_entites.SharedEntities().load_test()

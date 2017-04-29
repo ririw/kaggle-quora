@@ -131,6 +131,14 @@ class TestSVMData(SVMData):
 
 class GBMClassifier(luigi.Task):
     lightgbm_path = luigi.Parameter(default='/Users/richardweiss/Downloads/LightGBM/lightgbm')
+    is_simple = luigi.BoolParameter()
+
+    def make_path(self, *rest):
+        if self.is_simple:
+            parts = ['cache', 'lightgbm', 'simple'] + list(rest)
+        else:
+            parts = ['cache', 'lightgbm', 'complex'] + list(rest)
+        return os.path.join(*parts)
 
     def requires(self):
         yield TrainSVMData()
@@ -140,28 +148,29 @@ class GBMClassifier(luigi.Task):
         yield dataset.Dataset()
 
     def output(self):
-        return luigi.LocalTarget('cache/lightgbm/classifier_pred.csv.gz')
+        return luigi.LocalTarget(self.make_path('classifier_pred.csv.gz'))
 
     def train(self):
         self.output().makedirs()
         print(colors.green & colors.bold | "Starting training")
-        with open('cache/lightgbm/train_gbmclassifier.conf', 'w') as f:
+        with open(self.make_path('train_gbm_classifier.conf'), 'w') as f:
             f.write(self.train_conf)
-        local[self.lightgbm_path]['config=cache/lightgbm/train_gbmclassifier.conf'] & FG
+        local[self.lightgbm_path]['config=' + self.make_path('train_gbm_classifier.conf')] & FG
         print(colors.green & colors.bold | "Finished training")
 
     def pred_simple_target(self, dataset):
-        with open('cache/lightgbm/pred.conf', 'w') as f:
-            f.write(self.valid_conf % dataset)
+        with open(self.make_path('pred.conf'), 'w') as f:
+            f.write(self.valid_conf % (dataset, self.make_path(), self.make_path()))
 
-        local[self.lightgbm_path]['config=cache/lightgbm/pred.conf'] & FG
-        pred = pandas.read_csv('./cache/lightgbm/preds.csv', names=['is_duplicate'])
+        local[self.lightgbm_path]['config=' + self.make_path('pred.conf')] & FG
+        pred_loc = self.make_path('preds.csv')
+        pred = pandas.read_csv(pred_loc, names=['is_duplicate'])
         pred.index = pred.index.rename('test_id')
         return pred
 
     def merge(self):
         pred = self.pred_simple_target('merge')
-        pred.to_csv('cache/lightgbm/merge_predictions.csv')
+        pred.to_csv(self.make_path('merge_predictions.csv'))
 
     def valid(self):
         pred = self.pred_simple_target('valid')
@@ -179,15 +188,15 @@ class GBMClassifier(luigi.Task):
         test_tasks = SVMData.test_target_indexes(test_size)
         print(colors.green & colors.bold | "Predicting test values, this takes a long time...")
         for target_ix in tqdm(test_tasks, desc='Predicting'):
-            with open('cache/lightgbm/test_gbmclassifier.conf', 'w') as f:
-                f.write(self.test_conf % (target_ix, target_ix))
-            local[self.lightgbm_path]['config=cache/lightgbm/test_gbmclassifier.conf'] & FG
+            with open(self.make_path('test_gbmclassifier.conf'), 'w') as f:
+                f.write(self.test_conf % (target_ix, self.make_path(), target_ix, self.make_path()))
+            local[self.lightgbm_path]['config='+self.make_path('test_gbmclassifier.conf')] & FG
 
         preds = []
         for target_ix in tqdm(test_tasks, desc='Reading results file'):
-            pred = pandas.read_csv('./cache/lightgbm/test_preds_%d.csv' % target_ix, names=['is_duplicate'])
-            pred.index = pandas.Series(np.arange(target_ix,
-                                                 min(test_size, target_ix + SVMData.max_size)), name='test_id')
+            pred = pandas.read_csv(self.make_path('test_preds_%d.csv' % target_ix), names=['is_duplicate'])
+            index = np.arange(target_ix, min(test_size, target_ix + SVMData.max_size))
+            pred.index = pandas.Series(index, name='test_id')
             preds.append(pred)
         preds = pandas.concat(preds, 0)
         return preds
@@ -209,11 +218,11 @@ class GBMClassifier(luigi.Task):
 
     def load(self):
         assert self.complete()
-        return pandas.read_csv('cache/lightgbm/merge_predictions.csv', index_col='test_id').values
+        return pandas.read_csv(self.make_path('merge_predictions.csv'), index_col='test_id').values
 
     def load_test(self):
         assert self.complete()
-        return pandas.read_csv('cache/lightgbm/classifier_pred.csv.gz', index_col='test_id').values
+        return pandas.read_csv(self.make_path('classifier_pred.csv.gz'), index_col='test_id').values
 
     train_conf = """
     task = train
@@ -230,8 +239,9 @@ class GBMClassifier(luigi.Task):
 
     learning_rate = 0.05
     num_trees = 1000
-    num_leaves = 1024
+    num_leaves = 1500
     scale_pos_weight = 0.46
+    min_data_in_leaf = 25
 
     is_enable_sparse = true
     use_two_round_loading = false
@@ -241,15 +251,15 @@ class GBMClassifier(luigi.Task):
     valid_conf = """
     task = predict
     data = cache/svm_data/%s.svm
-    input_model=cache/lightgbm/gbm_model
-    output_result=cache/lightgbm/preds.csv
+    input_model=%s/gbm_model
+    output_result=%s/preds.csv
     """
 
     test_conf = """
     task = predict
     data = cache/svm_data/test_%d.svm
-    input_model = cache/lightgbm/gbm_model
-    output_result = cache/lightgbm/test_preds_%d.csv
+    input_model = %s/gbm_model
+    output_result = %s/test_preds_%d.csv
     """
 
 

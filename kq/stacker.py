@@ -8,6 +8,7 @@ from plumbum import colors
 from kq import core, xtc
 from kq.keras import KaggleKeras, KerasLSTMModel
 from kq.dataset import Dataset
+from kq.distances import AllDistances
 from kq.lightgbm import XGBlassifier, GBMClassifier
 from kq.vw import VWClassifier
 from kq.word_nb import NaiveBayesClassifier
@@ -18,7 +19,8 @@ from sklearn import metrics, linear_model, model_selection, svm, preprocessing
 class Stacks(luigi.Task):
     def requires(self):
         yield XGBlassifier()
-        yield GBMClassifier()
+        yield GBMClassifier(is_simple=False)
+        yield GBMClassifier(is_simple=True)
         yield VWClassifier()
         yield NaiveBayesClassifier()
         yield xtc.XTCComplexClassifier()
@@ -40,17 +42,21 @@ class Stacks(luigi.Task):
         for r in self.requires():
             x = r.load().squeeze()
             data[r.__class__.__name__] = x
+
         data = pandas.DataFrame(data)[list(data.keys())]
+        alldist = AllDistances().load()[1]
+        dist_pd = pandas.DataFrame(alldist, columns=['alldist_%d' % i for i in range(alldist.shape[1])])
+        data = pandas.concat([data, dist_pd], 1)
         data['is_duplicate'] = Dataset().load()[1].is_duplicate
         X = data.drop('is_duplicate', 1).values
         y = data.is_duplicate.values
 
         weights = core.weights[y]
         scores = []
-        cls = linear_model.LogisticRegression()
+        cls = linear_model.LogisticRegression(C=10)
 
         cls.fit(X, y)
-        print(pandas.Series(cls.coef_[0], [type(r) for r in self.requires()]))
+        print(pandas.Series(cls.coef_[0], data.drop('is_duplicate', 1).columns))
 
         polytransform = preprocessing.PolynomialFeatures(2)
         for train_index, test_index in model_selection.KFold(n_splits=10).split(X, y):
@@ -77,6 +83,10 @@ class Stacks(luigi.Task):
             data[r.__class__.__name__] = x
             #print(r.__class__.__name__, '\t', x.shape, type(x))
         data = pandas.DataFrame.from_dict(data)[list(data.keys())]
+        alldist = AllDistances().load_test()
+        dist_pd = pandas.DataFrame(alldist, columns=['alldist_%d' % i for i in range(alldist.shape[1])])
+        data = pandas.concat([data, dist_pd], 1)
+
         X = data.values
         X = polytransform.transform(X)
         index = pandas.Index(np.arange(X.shape[0]), name='test_id')

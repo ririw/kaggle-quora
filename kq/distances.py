@@ -67,6 +67,12 @@ class DistanceBase(luigi.Task):
         f = np.load(self.output().path)
         return f['test_dists']
 
+    def load_named(self, name):
+        assert name in {'train', 'valid', 'merge', 'test'}
+        assert self.complete()
+        f = np.load(self.output().path, mmap_mode='r')
+        return f['%s_dists' % name]
+
 
 class JaccardDistance(DistanceBase):
     def dist_fn(self, xs, ys):
@@ -169,3 +175,12 @@ class AllDistances(luigi.Task):
             all_test.append(test)
 
         return np.vstack(all_test).T
+
+    def load_named(self, name):
+        assert name in {'train', 'valid', 'merge', 'test'}
+        assert self.complete()
+        res = []
+        for r in self.requires():
+            assert r.complete()
+            res.append(r.load_named(name))
+        return np.vstack(res).T

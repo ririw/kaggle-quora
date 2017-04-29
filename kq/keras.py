@@ -6,29 +6,35 @@ import numpy as np
 import pandas
 from plumbum import colors
 
-from kq import core, keras_kaggle_data
+from kq import core, keras_kaggle_data, distances
 
 
 class KerasModel(luigi.Task):
     force = luigi.BoolParameter(default=False)
 
     def requires(self):
-        return keras_kaggle_data.KaggleDataset()
+        yield keras_kaggle_data.KaggleDataset()
+        yield distances.AllDistances()
 
     def output(self):
         if self.force:
             return False
         return luigi.LocalTarget('cache/%s/classifications.npy' % self.base_name)
 
+    def load_dataset(self, name):
+        [d1, d2], labels = keras_kaggle_data.KaggleDataset().load(name)
+        ds = distances.AllDistances().load_named(name)
+        return [d1, d2], labels
+
     def run(self):
         self.output().makedirs()
-        train_data, train_labels = self.requires().load('train')
-        valid_data, valid_labels = self.requires().load('valid')
+        train_data, train_labels = self.load_dataset('train')
+        valid_data, valid_labels = self.load_dataset('valid')
         valid_weights = core.weights[valid_labels]
         class_weights = dict(enumerate(core.weights))
-        embedding = self.requires().load_embedding()
+        embedding = keras_kaggle_data.KaggleDataset().load_embedding()
 
-        model = self.model(embedding, self.requires().MAX_SEQUENCE_LENGTH)
+        model = self.model(embedding, keras_kaggle_data.KaggleDataset().MAX_SEQUENCE_LENGTH)
         model.summary()
 
         early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
@@ -47,14 +53,14 @@ class KerasModel(luigi.Task):
         del valid_labels, valid_data
         del train_labels, train_data
 
-        merge_data, merge_labels = self.requires().load('merge')
+        merge_data, merge_labels = self.load_dataset('merge')
         merge_preds = model.predict(merge_data, batch_size=1024)
         merge_preds += model.predict([merge_data[1], merge_data[0]], batch_size=1024)
         merge_preds /= 2
 
         np.save('cache/%s/merge.npy' % self.base_name, merge_preds)
 
-        test_data, _ = self.requires().load('test', 10000)
+        test_data, _ = self.load_dataset('test')
         test_preds = model.predict(test_data, batch_size=1024)
         test_preds += model.predict([test_data[1], test_data[0]], batch_size=1024)
         test_preds /= 2
