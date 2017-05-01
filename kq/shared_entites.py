@@ -2,6 +2,7 @@ import tempfile
 import os
 
 import distance
+import gensim
 import luigi
 import spacy
 import numpy as np
@@ -9,6 +10,7 @@ from scipy import spatial
 from tqdm import tqdm
 
 from kq.dataset import Dataset
+from kq.utils import w2v_file
 
 
 class SharedEntities(luigi.Task):
@@ -18,7 +20,8 @@ class SharedEntities(luigi.Task):
     def extract_ents(self, words):
         doc = self.nlp(words)
         entities = {ent.text: ent.vector for ent in doc.ents}
-        return entities
+        flat = ' '.join([doc.text for doc in doc.ents])
+        return entities, flat
 
     distances = [
         spatial.distance.euclidean,
@@ -31,26 +34,28 @@ class SharedEntities(luigi.Task):
         spatial.distance.braycurtis]
 
     def entitiy_distances(self, q1, q2):
-        e1 = self.extract_ents(q1)
-        e2 = self.extract_ents(q2)
+        e1, flat1 = self.extract_ents(q1)
+        e2, flat2 = self.extract_ents(q2)
 
         if len(e1) == 0 or len(e2) == 0:
             return np.ones(len(self.distances) + 1)
 
         mean_vec1 = np.mean(list(e1.values()))
         mean_vec2 = np.mean(list(e2.values()))
-        #diff = np.abs(mean_vec1 - mean_vec2)
+        wmd = self.kvecs.wmdistance(flat1, flat2)
 
         distances = [d(mean_vec1, mean_vec2) for d in self.distances]
         jaccard_ents = distance.jaccard(e1.keys(), e2.keys())
 
-        return np.asarray(distances + [jaccard_ents])
+
+        return np.asarray(distances + [jaccard_ents, wmd])
 
     def output(self):
         return luigi.LocalTarget('cache/entities.npz')
 
     def run(self):
         self.nlp = spacy.load('en')
+        self.kvecs = gensim.models.KeyedVectors.load_word2vec_format(w2v_file)
         train, merge, valid = Dataset().load()
         test = Dataset().load_test()
 

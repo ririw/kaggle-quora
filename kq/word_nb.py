@@ -1,18 +1,18 @@
 import os
 
 import luigi
-import pandas
+import numpy as np
 from plumbum import colors
+from sklearn import naive_bayes, metrics
 
 from kq import core
+from kq.count_matrix import CountFeature
 from kq.dataset import Dataset
-from kq.shared_words import WordVectors
-from sklearn import naive_bayes, metrics
 
 
 class NaiveBayesClassifier(luigi.Task):
     def requires(self):
-        yield WordVectors()
+        yield CountFeature()
         yield Dataset()
 
     def output(self):
@@ -20,33 +20,28 @@ class NaiveBayesClassifier(luigi.Task):
 
     def run(self):
         self.output().makedirs()
-        train_X, merge_X, valid_X = WordVectors().load()
-        train, merge, valid = Dataset().load()
         cls = naive_bayes.BernoulliNB()
-        cls.fit(train_X, train.is_duplicate)
+        cls.fit(CountFeature().load_dataset('train'), CountFeature().load_dataset('train').is_duplicate)
 
-        preds = cls.predict_proba(valid_X)[:, 1]
-        weights = core.weights[valid.is_duplicate.values]
-        loss = metrics.log_loss(valid.is_duplicate, preds, sample_weight=weights)
+        preds = cls.predict_proba(CountFeature().load_dataset('valid'))[:, 1]
+        valid_isdup = Dataset().load_named('train').is_duplicate
+        weights = core.weights[valid_isdup.values]
+        loss = metrics.log_loss(valid_isdup.values, preds, sample_weight=weights)
         print(colors.green | str(loss))
 
-        merge_pred = cls.predict_proba(merge_X)[:, 1]
-        pandas.Series(merge_pred).to_csv('cache/nb/merge_predictions.csv')
+        merge_pred = cls.predict_proba(CountFeature().load_dataset('merge'))[:, 1]
+        np.save('cache/nb/merge_predictions.npy', merge_pred)
 
-        del train, merge, valid
-        del train_X, merge_X, valid_X
-
-        test = WordVectors().load_test()
+        test = CountFeature().load_dataset('test')
         pred = cls.predict_proba(test)[:, 1]
-        pandas.Series(pred).to_csv('cache/nb/predictions_tmp.csv')
-        os.rename('cache/nb/predictions_tmp.csv', 'cache/nb/predictions.csv')
-
+        np.save('cache/nb/predictions_tmp.npy', pred)
+        os.rename('cache/nb/predictions_tmp.npy', 'cache/nb/predictions.npy')
 
     def load(self):
         assert self.complete()
-        return pandas.read_csv('cache/nb/merge_predictions.csv', names=['test_id', 'pred'], index_col='test_id').values
+        return np.load('cache/nb/merge_predictions.npy')
 
     def load_test(self):
         assert self.complete()
-        return pandas.read_csv('cache/nb/predictions.csv', names=['test_id', 'pred'], index_col='test_id').values
+        return np.load('cache/nb/predictions.npy')
 

@@ -10,7 +10,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix, wordmat_distance, count_matrix
+from kq import dataset, question_vectors, distances, shared_entites, core, tfidf_matrix, wordmat_distance, count_matrix
 
 
 class VWData(luigi.Task):
@@ -20,7 +20,7 @@ class VWData(luigi.Task):
     def requires(self):
         yield dataset.Dataset()
         yield tfidf_matrix.TFIDFFeature()
-        yield shared_words.QuestionVector()
+        yield question_vectors.QuestionVector()
         yield distances.AllDistances()
         yield shared_entites.SharedEntities()
         yield wordmat_distance.WordMatDistance()
@@ -44,7 +44,7 @@ class VWData(luigi.Task):
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
             #vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
             vecs = count_matrix.CountFeature.load_dataset(self.data_subset)
-            qvecs = shared_words.QuestionVector().load()[ix]
+            qvecs = question_vectors.QuestionVector().load_named(self.data_subset)
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
             wmvecs = wordmat_distance.WordMatDistance().load(self.data_subset)
@@ -52,7 +52,7 @@ class VWData(luigi.Task):
         else:
             #vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
             vecs = count_matrix.CountFeature.load_dataset('test')
-            qvecs = shared_words.QuestionVector().load_test()
+            qvecs = question_vectors.QuestionVector().load_named('test')
             dvecs = distances.AllDistances().load_test()
             evecs = shared_entites.SharedEntities().load_test()
             wmvecs = wordmat_distance.WordMatDistance().load('test')
@@ -63,7 +63,6 @@ class VWData(luigi.Task):
         evec_offset = dvec_offset + dvecs.shape[1]
         wmvec_offset = evec_offset + evecs.shape[1]
         vecs_offset = wmvec_offset + wmvecs.shape[1]
-        gensim.similarities.WmdSimilarity
 
         def write_row(i, f):
             row = vecs[i]

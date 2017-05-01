@@ -1,3 +1,4 @@
+import gensim
 import luigi
 import pandas
 import spacy
@@ -7,6 +8,9 @@ from kq import count_matrix, tfidf_matrix, dataset, vocab
 import numpy as np
 import scipy.sparse as sp
 from sklearn import decomposition
+
+from kq.utils import w2v_file
+
 
 class WordMatDistance(luigi.Task):
     def requires(self):
@@ -121,7 +125,7 @@ class SentenceVecs(luigi.Task):
         return a, b
 
 
-class SimpleSentenceDistance(luigi.Task):
+class WeightedSentenceVecs(luigi.Task):
     # See: https://openreview.net/pdf?id=SyK00v5xx
     def requires(self):
         yield dataset.Dataset()

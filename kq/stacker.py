@@ -1,19 +1,19 @@
 from collections import OrderedDict
 
 import luigi
-import pandas
 import numpy as np
+import pandas
 from plumbum import colors
+from sklearn import metrics, linear_model, model_selection, preprocessing
 
 from kq import core, xtc
-from kq.keras import KaggleKeras, KerasLSTMModel
 from kq.dataset import Dataset
 from kq.distances import AllDistances
-from kq.lightgbm import XGBlassifier, GBMClassifier
+from kq.keras import KaggleKeras
+from kq.lightgbm import GBMClassifier
 from kq.vw import VWClassifier
 from kq.word_nb import NaiveBayesClassifier
-
-from sklearn import metrics, linear_model, model_selection, svm, preprocessing
+from kq.xgb import XGBlassifier
 
 
 class Stacks(luigi.Task):

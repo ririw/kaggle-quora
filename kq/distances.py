@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 
 from kq import dataset
+from kq.utils import w2v_file
 
 
 class DistanceBase(luigi.Task):
@@ -147,7 +148,6 @@ class WordMoverDistance(DistanceBase):
 
     def run(self):
         data_dict = {}
-        w2v_file = '/Users/richardweiss/Datasets/glove.6B.300d.w2v'
         kvecs = gensim.models.word2vec.Word2Vec.load_word2vec_format(w2v_file)
         for name in {'train', 'merge', 'valid', 'test'}:
             data = dataset.Dataset().load_named(name)
@@ -159,8 +159,8 @@ class WordMoverDistance(DistanceBase):
             np.savez(tf,
                      train_dists=data_dict['train'],
                      valid_dists=data_dict['train'],
-                     test_dists=data_dict['test'],
-                     merge_dists=data_dict['merge'])
+                     merge_dists=data_dict['merge'],
+                     test_dists=data_dict['test'])
             os.rename(tf.name, self.output().path)
         except Exception as e:
             os.remove(tf)

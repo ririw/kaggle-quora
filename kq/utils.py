@@ -100,3 +100,5 @@ class GeneratorEnqueuer:
         self._threads = []
         self._stop_event = None
         self.queue = None
+
+w2v_file = '/Users/richardweiss/Datasets/glove.6B.300d.w2v'

@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, shared_words, distances, shared_entites, core, tfidf_matrix, wordmat_distance
+from kq import dataset, question_vectors, distances, shared_entites, core, tfidf_matrix, wordmat_distance
 
 
 class SVMData(luigi.Task):
@@ -18,7 +18,7 @@ class SVMData(luigi.Task):
 
     def requires(self):
         yield dataset.Dataset()
-        yield shared_words.QuestionVector()
+        yield question_vectors.QuestionVector()
         yield distances.AllDistances()
         yield shared_entites.SharedEntities()
         yield tfidf_matrix.TFIDFFeature()
@@ -32,14 +32,14 @@ class SVMData(luigi.Task):
         if self.data_subset in {'train', 'valid', 'merge'}:
             ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
             vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
-            qvecs = shared_words.QuestionVector().load()[ix]
+            qvecs = question_vectors.QuestionVector().load_named(self.data_subset)
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load()[ix]
             wmvecs = wordmat_distance.WordMatDistance().load(self.data_subset)
             labels = dataset.Dataset().load()[ix].is_duplicate.values
         else:
             vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
-            qvecs = shared_words.QuestionVector().load_test()
+            qvecs = question_vectors.QuestionVector().load_named('test')
             dvecs = distances.AllDistances().load_test()
             evecs = shared_entites.SharedEntities().load_test()
             wmvecs = wordmat_distance.WordMatDistance().load('test')
@@ -268,122 +268,3 @@ class GBMClassifier(luigi.Task):
     output_result = {resulty_path}/test_preds_{ix}.csv
     """
 
-
-class XGBlassifier(luigi.Task):
-    xgb_path = luigi.Parameter(default='/Users/richardweiss/Downloads/xgboost/xgboost')
-
-    def requires(self):
-        yield TrainSVMData()
-        yield ValidSVMData()
-        yield MergeSVMData()
-        yield TestSVMData()
-        yield dataset.Dataset()
-
-    def output(self):
-        return luigi.LocalTarget('cache/xgb/classifier_pred.csv.gz')
-
-    def train(self):
-        self.output().makedirs()
-        print(colors.green & colors.bold | "Starting training")
-        with open('cache/xgb/train.conf', 'w') as f:
-            f.write(self.train_conf)
-        local[self.xgb_path]['cache/xgb/train.conf'] & FG
-        print(colors.green & colors.bold | "Finished training")
-
-    train_conf = """
-    booster = gbtree
-    objective = binary:logistic
-    #eval_metric=logloss
-    
-    eta = 0.1
-    max_depth = 7
-    scale_pos_weight=0.46
-    early_stop_round = 10
-    
-    num_round = 250
-    save_period = 0
-    data = "cache/svm_data/simple/train.svm"
-    eval[test] = "cache/simple/valid.svm"
-    model_out = "cache/xgb/model"
-    nthread=4
-    """
-
-    def pred_simple_target(self, dataset):
-        with open('cache/xgb/pred.conf', 'w') as f:
-            f.write(self.valid_conf % dataset)
-
-        local[self.xgb_path]['cache/xgb/pred.conf'] & FG
-        pred = pandas.read_csv('./cache/xgb/preds.csv', names=['is_duplicate'])
-        pred.index = pred.index.rename('test_id')
-        return pred
-
-    def valid(self):
-        pred = self.pred_simple_target('valid')
-        print(colors.green | "prediction sample...")
-        print(colors.green | str(pred.head()))
-        y = dataset.Dataset().load()[2]
-        weights = core.weights[y.is_duplicate.values]
-        loss = metrics.log_loss(y.is_duplicate, pred.is_duplicate, sample_weight=weights)
-        print(colors.green | "Performance: " + str(loss))
-
-        return pred
-
-    def merge(self):
-        pred = self.pred_simple_target('merge')
-        pred.to_csv('cache/xgb/merge_predictions.csv')
-
-    valid_conf = """
-    task = pred
-    model_in = "cache/xgb/model"
-    test:data = "cache/svm_data/simple/%s.svm"
-    name_pred = "cache/xgb/preds.csv"
-    """
-
-    def test(self):
-        test_size = dataset.Dataset().load_test().shape[0]
-        test_tasks = SVMData.test_target_indexes(test_size)
-        print(colors.green & colors.bold | "Predicting test values, this takes a long time...")
-        for target_ix in tqdm(test_tasks, desc='Predicting'):
-            with open('cache/xgb/test.conf', 'w') as f:
-                f.write(self.test_conf % (target_ix, target_ix))
-            local[self.xgb_path]['cache/xgb/test.conf'] & FG
-
-        preds = []
-        for target_ix in tqdm(test_tasks, desc='Reading results file'):
-            pred = pandas.read_csv('./cache/xgb/test_preds_%d.csv' % target_ix, names=['is_duplicate'])
-            pred.index = pandas.Series(
-                np.arange(target_ix, min(test_size, target_ix + SVMData.max_size)),
-                name='test_id')
-            preds.append(pred)
-        preds = pandas.concat(preds, 0)
-        return preds
-
-    test_conf = """
-        task = pred
-        model_in = "cache/xgb/model"
-        test:data = "cache/svm_data/simple/test_%d.svm"
-        name_pred = "cache/xgb/test_preds_%d.csv"
-        """
-
-    def run(self):
-        self.train()
-        self.merge()
-        self.valid()
-        pred = self.test()
-
-        tf = tempfile.NamedTemporaryFile(delete=False)
-        try:
-            pred.to_csv(tf.name, compression='gzip')
-            os.rename(tf.name, self.output().path)
-        except:
-            os.remove(tf.name)
-            raise
-
-    def load(self):
-        assert self.complete()
-        res = pandas.read_csv('cache/xgb/merge_predictions.csv', index_col='test_id')
-        return res
-
-    def load_test(self):
-        assert self.complete()
-        return pandas.read_csv('cache/xgb/classifier_pred.csv.gz', index_col='test_id').values

@@ -6,7 +6,7 @@ import numpy as np
 import scipy.sparse as sp
 from plumbum import colors
 
-from kq import core, distances, dataset, shared_words, shared_entites, tfidf_matrix, count_matrix, wordmat_distance
+from kq import core, distances, dataset, question_vectors, shared_entites, tfidf_matrix, count_matrix, wordmat_distance
 from sklearn import ensemble, metrics
 
 
@@ -16,7 +16,6 @@ class XTCBaseClassifier(luigi.Task):
 
     def requires(self):
         yield dataset.Dataset()
-        yield shared_words.WordVectors()
         yield shared_entites.SharedEntities()
         yield distances.AllDistances()
         yield count_matrix.CountFeature()
