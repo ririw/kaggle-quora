@@ -2,6 +2,7 @@ import tempfile
 import os
 from glob import glob
 
+import gensim
 import luigi
 import pandas
 from sklearn import metrics
@@ -62,13 +63,14 @@ class VWData(luigi.Task):
         evec_offset = dvec_offset + dvecs.shape[1]
         wmvec_offset = evec_offset + evecs.shape[1]
         vecs_offset = wmvec_offset + wmvecs.shape[1]
+        gensim.similarities.WmdSimilarity
 
         def write_row(i, f):
             row = vecs[i]
-            qvec = qvecs[i]
-            dvec = dvecs[i]
-            evec = evecs[i]
-            wmvec = wmvecs[i]
+            qvec = qvecs[i].copy()
+            dvec = dvecs[i].copy()
+            evec = evecs[i].copy()
+            wmvec = wmvecs[i].copy()
             label = labels[i] * 2 - 1
             qvec[np.isnan(qvec)] = -1
             dvec[np.isnan(dvec)] = -1

@@ -2,6 +2,7 @@ import tempfile
 import os
 
 import distance
+import gensim
 import luigi
 import numpy as np
 from tqdm import tqdm
@@ -134,6 +135,37 @@ class CharsDistance(DistanceBase):
         return 'char_dist'
 
 
+class WordMoverDistance(DistanceBase):
+    @property
+    def name(self):
+        return 'wmd_dist'
+    def requires(self):
+        return dataset.Dataset()
+
+    def output(self):
+        return luigi.LocalTarget('./cache/distance-wmd.npz')
+
+    def run(self):
+        data_dict = {}
+        w2v_file = '/Users/richardweiss/Datasets/glove.6B.300d.w2v'
+        kvecs = gensim.models.word2vec.Word2Vec.load_word2vec_format(w2v_file)
+        for name in {'train', 'merge', 'valid', 'test'}:
+            data = dataset.Dataset().load_named(name)
+            distances = [kvecs.wmdistance(q1, q2) for q1, q2 in zip(data.question1_raw, data.question2_raw)]
+            data_dict[name] = np.asarray(distances)
+
+        tf = tempfile.NamedTemporaryFile(delete=False)
+        try:
+            np.savez(tf,
+                     train_dists=data_dict['train'],
+                     valid_dists=data_dict['train'],
+                     test_dists=data_dict['test'],
+                     merge_dists=data_dict['merge'])
+            os.rename(tf.name, self.output().path)
+        except Exception as e:
+            os.remove(tf)
+            raise
+
 class AllDistances(luigi.Task):
     def requires(self):
         yield JaccardDistance()
@@ -142,6 +174,7 @@ class AllDistances(luigi.Task):
         yield SorensenDistance()
         yield WordsDistance()
         yield CharsDistance()
+        yield WordMoverDistance()
 
     def complete(self):
         for r in self.requires():

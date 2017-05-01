@@ -14,7 +14,7 @@ from kq import dataset, shared_words, distances, shared_entites, core, tfidf_mat
 
 class SVMData(luigi.Task):
     data_subset = None  # train, test, merge or valid
-    max_size = 100000
+    max_size = 50000
 
     def requires(self):
         yield dataset.Dataset()
@@ -24,18 +24,8 @@ class SVMData(luigi.Task):
         yield tfidf_matrix.TFIDFFeature()
         yield wordmat_distance.WordMatDistance()
 
-    def complete(self):
-        if self.data_subset == 'test':
-            if not os.path.exists('cache/svm_data/test_0.svm'):
-                return False
-            test_size = dataset.Dataset().load_test().shape[0]
-            target_ixs = self.test_target_indexes(test_size)
-            for target_ix in target_ixs:
-                if not os.path.exists('cache/svm_data/test_%d.svm' % target_ix):
-                    return False
-            return True
-        else:
-            return os.path.exists('cache/svm_data/%s.svm' % self.data_subset)
+    def output(self):
+        return luigi.LocalTarget('cache/svm_data/done_%s' % self.data_subset)
 
     def run(self):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
@@ -78,30 +68,36 @@ class SVMData(luigi.Task):
             f2.write('%d %s %s %s %s\n' % (label, qvec_entries, dvec_entries, evec_entries, wmvec_entries))
             f3.write('%d %s\n' % (label, wmvec_entries))
 
-        os.makedirs('cache/svm_data', exist_ok=True)
+        os.makedirs('cache/svm_data/simple', exist_ok=True)
+        os.makedirs('cache/svm_data/complex', exist_ok=True)
+        os.makedirs('cache/svm_data/words', exist_ok=True)
         if self.data_subset == 'test':
             for start_ix in tqdm(self.test_target_indexes(vecs.shape[0])):
-                with open('cache/svm_data/test_%d_tmp.svm' % start_ix, 'w') as f1, \
-                     open('cache/svm_data/test_simple_%d_tmp.svm' % start_ix, 'w') as f2, \
-                     open('cache/svm_data/test_words_%d_tmp.svm' % start_ix, 'w') as f3:
+                with open('cache/svm_data/complex/test_%d.svm.tmp' % start_ix, 'w') as f1, \
+                     open('cache/svm_data/simple/test_%d.svm.tmp' % start_ix, 'w') as f2, \
+                     open('cache/svm_data/words/test_%d.svm.tmp' % start_ix, 'w') as f3:
                     for i in range(start_ix, min(start_ix + self.max_size, vecs.shape[0])):
                         write_row(i, f1, f2, f3)
-                os.rename('cache/svm_data/test_simple_%d_tmp.svm' % start_ix,
-                          'cache/svm_data/test_simple_%d.svm' % start_ix)
-                os.rename('cache/svm_data/test_words_%d_tmp.svm' % start_ix,
-                          'cache/svm_data/test_words_%d.svm' % start_ix)
-                os.rename('cache/svm_data/test_%d_tmp.svm' % start_ix, 'cache/svm_data/test_%d.svm' % start_ix)
+                os.rename('cache/svm_data/simple/test_%d.svm.tmp' % start_ix,
+                          'cache/svm_data/simple/test_%d.svm' % start_ix)
+                os.rename('cache/svm_data/words/test_%d.svm.tmp' % start_ix,
+                          'cache/svm_data/words/test_%d.svm' % start_ix)
+                os.rename('cache/svm_data/complex/test_%d.svm.tmp' % start_ix,
+                          'cache/svm_data/complex/test_%d.svm' % start_ix)
         else:
-            with open('cache/svm_data/%s_tmp.svm' % self.data_subset, 'w') as f1, \
-                 open('cache/svm_data/%s_tmp_simple.svm' % self.data_subset, 'w') as f2, \
-                 open('cache/svm_data/%s_tmp_words.svm' % self.data_subset, 'w') as f3:
+            with open('cache/svm_data/complex/%s.svm.tmp' % self.data_subset, 'w') as f1, \
+                 open('cache/svm_data/simple/%s.svm.tmp' % self.data_subset, 'w') as f2, \
+                 open('cache/svm_data/words/%s.svm.tmp' % self.data_subset, 'w') as f3:
                 for i in tqdm(range(qvecs.shape[0]), desc='writing %s data' % self.data_subset):
-                    write_row(i, f1, f2)
-            os.rename('cache/svm_data/%s_tmp_simple.svm' % self.data_subset,
-                      'cache/svm_data/%s_simple.svm' % self.data_subset)
-            os.rename('cache/svm_data/%s_tmp_words.svm' % self.data_subset,
-                      'cache/svm_data/%s_words.svm' % self.data_subset)
-            os.rename('cache/svm_data/%s_tmp.svm' % self.data_subset, 'cache/svm_data/%s.svm' % self.data_subset)
+                    write_row(i, f1, f2, f3)
+            os.rename('cache/svm_data/simple/%s.svm.tmp' % self.data_subset,
+                      'cache/svm_data/simple/%s.svm' % self.data_subset)
+            os.rename('cache/svm_data/words/%s.svm.tmp' % self.data_subset,
+                      'cache/svm_data/words/%s.svm' % self.data_subset)
+            os.rename('cache/svm_data/complex/%s.svm.tmp' % self.data_subset,
+                      'cache/svm_data/complex/%s.svm' % self.data_subset)
+        with self.output().open('w'):
+            pass
 
     @staticmethod
     def test_target_indexes(test_size):
@@ -131,13 +127,11 @@ class TestSVMData(SVMData):
 
 class GBMClassifier(luigi.Task):
     lightgbm_path = luigi.Parameter(default='/Users/richardweiss/Downloads/LightGBM/lightgbm')
-    is_simple = luigi.BoolParameter()
+    dataset_kind = luigi.Parameter()
 
     def make_path(self, *rest):
-        if self.is_simple:
-            parts = ['cache', 'lightgbm', 'simple'] + list(rest)
-        else:
-            parts = ['cache', 'lightgbm', 'complex'] + list(rest)
+        assert self.dataset_kind in {'simple', 'complex', 'words'}
+        parts = ['cache', 'lightgbm', self.dataset_kind] + list(rest)
         return os.path.join(*parts)
 
     def requires(self):
@@ -154,13 +148,19 @@ class GBMClassifier(luigi.Task):
         self.output().makedirs()
         print(colors.green & colors.bold | "Starting training")
         with open(self.make_path('train_gbm_classifier.conf'), 'w') as f:
-            f.write(self.train_conf)
+            conf = self.train_conf.format(data_path='cache/svm_data/%s' % self.dataset_kind,
+                                          resulty_path=self.make_path())
+            print(conf)
+            f.write(conf)
         local[self.lightgbm_path]['config=' + self.make_path('train_gbm_classifier.conf')] & FG
         print(colors.green & colors.bold | "Finished training")
 
     def pred_simple_target(self, dataset):
         with open(self.make_path('pred.conf'), 'w') as f:
-            f.write(self.valid_conf % (dataset, self.make_path(), self.make_path()))
+            conf = self.valid_conf.format(data_path='cache/svm_data/%s/%s.svm' % (self.dataset_kind, dataset),
+                                          resulty_path=self.make_path())
+            print(conf)
+            f.write(conf)
 
         local[self.lightgbm_path]['config=' + self.make_path('pred.conf')] & FG
         pred_loc = self.make_path('preds.csv')
@@ -189,7 +189,13 @@ class GBMClassifier(luigi.Task):
         print(colors.green & colors.bold | "Predicting test values, this takes a long time...")
         for target_ix in tqdm(test_tasks, desc='Predicting'):
             with open(self.make_path('test_gbmclassifier.conf'), 'w') as f:
-                f.write(self.test_conf % (target_ix, self.make_path(), target_ix, self.make_path()))
+                conf = self.test_conf.format(
+                    data_path='cache/svm_data/%s' % self.dataset_kind,
+                    ix=target_ix,
+                    resulty_path=self.make_path()
+                )
+                print(conf)
+                f.write(conf)
             local[self.lightgbm_path]['config='+self.make_path('test_gbmclassifier.conf')] & FG
 
         preds = []
@@ -226,17 +232,17 @@ class GBMClassifier(luigi.Task):
 
     train_conf = """
     task = train
-    boosting_type = gbdt
     objective = binary
     metric = binary_logloss
     metric_freq = 5
     is_training_metric = true
     early_stopping_round = 10
 
-    data=cache/svm_data/train.svm
-    valid_data=cache/svm_data/valid.svm
-    output_model=cache/lightgbm/gbm_model
+    data={data_path}/train.svm
+    valid_data={data_path}/valid.svm
+    output_model={resulty_path}/gbm_model
 
+    boosting_type = gbdt
     learning_rate = 0.05
     num_trees = 1000
     num_leaves = 1500
@@ -250,16 +256,16 @@ class GBMClassifier(luigi.Task):
 
     valid_conf = """
     task = predict
-    data = cache/svm_data/%s.svm
-    input_model=%s/gbm_model
-    output_result=%s/preds.csv
+    data = {data_path}
+    input_model={resulty_path}/gbm_model
+    output_result={resulty_path}/preds.csv
     """
 
     test_conf = """
     task = predict
-    data = cache/svm_data/test_%d.svm
-    input_model = %s/gbm_model
-    output_result = %s/test_preds_%d.csv
+    data = {data_path}/test_{ix}.svm
+    input_model = {resulty_path}/gbm_model
+    output_result = {resulty_path}/test_preds_{ix}.csv
     """
 
 
@@ -296,8 +302,8 @@ class XGBlassifier(luigi.Task):
     
     num_round = 250
     save_period = 0
-    data = "cache/svm_data/train_simple.svm"
-    eval[test] = "cache/svm_data/valid_simple.svm"
+    data = "cache/svm_data/simple/train.svm"
+    eval[test] = "cache/simple/valid.svm"
     model_out = "cache/xgb/model"
     nthread=4
     """
@@ -329,7 +335,7 @@ class XGBlassifier(luigi.Task):
     valid_conf = """
     task = pred
     model_in = "cache/xgb/model"
-    test:data = "cache/svm_data/%s_simple.svm"
+    test:data = "cache/svm_data/simple/%s.svm"
     name_pred = "cache/xgb/preds.csv"
     """
 
@@ -355,7 +361,7 @@ class XGBlassifier(luigi.Task):
     test_conf = """
         task = pred
         model_in = "cache/xgb/model"
-        test:data = "cache/svm_data/test_simple_%d.svm"
+        test:data = "cache/svm_data/simple/test_%d.svm"
         name_pred = "cache/xgb/test_preds_%d.csv"
         """
 

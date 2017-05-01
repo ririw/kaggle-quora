@@ -1,18 +1,17 @@
 import logging
 import os
 import tempfile
-from collections import Counter
 from zipfile import ZipFile
 
 import luigi
 import numpy as np
 import pandas
 import spacy.en
-from scipy import sparse, io, spatial
-from sklearn import neighbors
 import tqdm
+from scipy import sparse, io, spatial
 
-from kq import core, dataset
+from kq import core, dataset, wordmat_distance
+from kq.vocab import Vocab
 
 
 def vectorize_sent(sent, word_ix_map, max_ix):
@@ -21,42 +20,6 @@ def vectorize_sent(sent, word_ix_map, max_ix):
         if tok in word_ix_map:
             vec[word_ix_map[tok]] += 1
     return vec
-
-
-class Vocab(luigi.Task):
-    def requires(self):
-        return dataset.Dataset()
-
-    def output(self):
-        return luigi.LocalTarget('./cache/vocab.msg')
-
-    def run(self):
-        train_data, _, _ = dataset.Dataset().load()
-        vocab_count = Counter()
-        for sent in tqdm.tqdm(train_data.question1_tokens,
-                              desc='Counting questions one',
-                              total=train_data.shape[0]):
-            for tok in sent:
-                vocab_count[tok] += 1
-
-        for sent in tqdm.tqdm(train_data.question1_tokens,
-                              desc='Counting questions two',
-                              total=train_data.shape[0]):
-            for tok in sent:
-                vocab_count[tok] += 1
-
-        vocab_counts = pandas.Series(vocab_count)
-        self.output().makedirs()
-        vocab_counts.to_msgpack(self.output().path)
-
-    def load_vocab(self, min_occurances=10, max_words=None):
-        assert self.complete()
-        vocab_counts = pandas.read_msgpack('./cache/vocab.msg')
-        admissible_vocab = vocab_counts[vocab_counts > min_occurances].copy()
-        admissible_vocab.index = admissible_vocab.index.rename('word')
-        admissible_vocab = admissible_vocab.to_frame('count').sort_values('count', ascending=False)
-        admissible_vocab['word_id'] = np.arange(admissible_vocab.shape[0]) + 1
-        return admissible_vocab
 
 
 class WordVectors(luigi.Task):
@@ -219,10 +182,10 @@ def load_sparse_csr(filename):
 
 class QuestionVector(luigi.Task):
     def requires(self):
-        return dataset.Dataset()
+        return wordmat_distance.SimpleSentenceDistance()
 
     def output(self):
-        return luigi.LocalTarget('./cache/question_vec.npz')
+        return luigi.LocalTarget('./cache/question_distance/done')
 
     def merge_vecs(self, v1, v2):
         distances = [
@@ -239,56 +202,24 @@ class QuestionVector(luigi.Task):
         diffs = np.abs(v1 - v2)
         return np.concatenate([diffs, distance_mat], 1)
 
-
     def run(self):
-        English = spacy.en.English()
-        tqdm.tqdm.pandas(tqdm.tqdm)
-        import coloredlogs
-        coloredlogs.install(level=logging.INFO)
-
-        train, merge, valid = dataset.Dataset().load()
-        logging.info('Vectorizing: train/q1')
-        train_vecs1 = np.vstack(train.question1_clean.progress_apply(lambda q: English(q).vector).values)
-        logging.info('Vectorizing: train/q2')
-        train_vecs2 = np.vstack(train.question2_clean.progress_apply(lambda q: English(q).vector).values)
-        train_vecs = self.merge_vecs(train_vecs1, train_vecs2)
-        del train, train_vecs1, train_vecs2
-
-        logging.info('Vectorizing: merge/q1')
-        merge_vecs1 = np.vstack(merge.question1_clean.progress_apply(lambda q: English(q).vector).values)
-        logging.info('Vectorizing: merge/q2')
-        merge_vecs2 = np.vstack(merge.question2_clean.progress_apply(lambda q: English(q).vector).values)
-        merge_vecs = self.merge_vecs(merge_vecs1, merge_vecs2)
-        del merge, merge_vecs1, merge_vecs2
-
-        logging.info('Vectorizing: valid/q1')
-        valid_vecs1 = np.vstack(valid.question1_clean.progress_apply(lambda q: English(q).vector).values)
-        logging.info('Vectorizing: valid/q2')
-        valid_vecs2 = np.vstack(valid.question2_clean.progress_apply(lambda q: English(q).vector).values)
-        valid_vecs = self.merge_vecs(valid_vecs1, valid_vecs2)
-        del valid, valid_vecs1, valid_vecs2
-
-        test = dataset.Dataset().load_test()
-        logging.info('Vectorizing: test/q1')
-        test_vecs1 = np.vstack(test.question1_clean.progress_apply(lambda q: English(q).vector).values)
-        logging.info('Vectorizing: test/q2')
-        test_vecs2 = np.vstack(test.question2_clean.progress_apply(lambda q: English(q).vector).values)
-        test_vecs = self.merge_vecs(test_vecs1, test_vecs2)
-        del test, test_vecs1, test_vecs2
-
-        tmpfile = tempfile.mktemp()
-        with open(tmpfile, 'wb') as f:
-            np.savez(f, train_vecs=train_vecs, merge_vecs=merge_vecs,
-                     valid_vecs=valid_vecs, test_vecs=test_vecs)
         self.output().makedirs()
-        os.rename(tmpfile, self.output().path)
+        tqdm.tqdm.pandas(tqdm.tqdm)
+
+
+        for dataset in {'train', 'merge', 'test', 'valid'}:
+            vecs1, vecs2 = wordmat_distance.SimpleSentenceDistance().load(dataset)
+            dists = self.merge_vecs(vecs1, vecs2)
+            np.save('cache/question_distance/%s.npy' % dataset, dists)
+        with self.output().open('w') as f:
+            pass
 
     def load(self):
-        assert self.complete()
-        data = np.load(self.output().path, mmap_mode='r')
-        return data['train_vecs'], data['merge_vecs'], data['valid_vecs']
+        return self.load_named('train'), self.load_named('merge'), self.load_named('valid')
 
     def load_test(self):
+        return self.load_named('test')
+
+    def load_named(self, name):
         assert self.complete()
-        data = np.load(self.output().path, mmap_mode='r')
-        return data['test_vecs']
+        return np.load('cache/question_distance/%s.npy' % name, mmap_mode='r')

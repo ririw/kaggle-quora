@@ -19,8 +19,9 @@ from sklearn import metrics, linear_model, model_selection, svm, preprocessing
 class Stacks(luigi.Task):
     def requires(self):
         yield XGBlassifier()
-        yield GBMClassifier(is_simple=False)
-        yield GBMClassifier(is_simple=True)
+        yield GBMClassifier(dataset_kind='simple')
+        yield GBMClassifier(dataset_kind='complex')
+        yield GBMClassifier(dataset_kind='words')
         yield VWClassifier()
         yield NaiveBayesClassifier()
         yield xtc.XTCComplexClassifier()
@@ -39,9 +40,11 @@ class Stacks(luigi.Task):
 
     def run(self):
         data = OrderedDict()
+        shapes = {}
         for r in self.requires():
             x = r.load().squeeze()
-            data[r.__class__.__name__] = x
+            data[r.task_id] = x
+            shapes[r.task_id] = x.shape[1] if len(x.shape) == 2 else 1
 
         data = pandas.DataFrame(data)[list(data.keys())]
         alldist = AllDistances().load()[1]
@@ -80,7 +83,9 @@ class Stacks(luigi.Task):
         data = OrderedDict()
         for r in self.requires():
             x = r.load_test().squeeze()
-            data[r.__class__.__name__] = x
+            data[r.task_id] = x
+            assert shapes[r.task_id] == x.shape[1] if len(x.shape) == 2 else 1,\
+                "Shape: {} did not match expected {}" % (x.shape, shapes[r.task_id])
             #print(r.__class__.__name__, '\t', x.shape, type(x))
         data = pandas.DataFrame.from_dict(data)[list(data.keys())]
         alldist = AllDistances().load_test()
