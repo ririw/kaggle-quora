@@ -46,9 +46,9 @@ class SharedEntities(luigi.Task):
 
         distances = [d(mean_vec1, mean_vec2) for d in self.distances]
         jaccard_ents = distance.jaccard(e1.keys(), e2.keys())
+        stddiff = np.std(e1 - e2)
 
-
-        return np.asarray(distances + [jaccard_ents, wmd])
+        return np.asarray(distances + [jaccard_ents, wmd, stddiff])
 
     def output(self):
         return luigi.LocalTarget('cache/entities.npz')

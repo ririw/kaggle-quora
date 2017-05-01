@@ -21,7 +21,8 @@ class NaiveBayesClassifier(luigi.Task):
     def run(self):
         self.output().makedirs()
         cls = naive_bayes.BernoulliNB()
-        cls.fit(CountFeature().load_dataset('train'), CountFeature().load_dataset('train').is_duplicate)
+        cls.fit(CountFeature().load_dataset('train'),
+                Dataset().load_dataset('train').is_duplicate)
 
         preds = cls.predict_proba(CountFeature().load_dataset('valid'))[:, 1]
         valid_isdup = Dataset().load_named('train').is_duplicate
