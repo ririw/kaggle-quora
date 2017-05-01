@@ -92,12 +92,7 @@ class SharedEntities(luigi.Task):
         except:
             os.remove(tf)
 
-    def load(self):
+    def load_named(self, name):
         assert self.complete()
         r = np.load(self.output().path, mmap_mode='r')
-        return r['train_distances'], r['merge_distances'], r['valid_distances']
-
-    def load_test(self):
-        assert self.complete()
-        r = np.load(self.output().path, mmap_mode='r')
-        return r['test_distances']
+        return r['%s_distances' % name]

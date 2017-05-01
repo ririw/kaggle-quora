@@ -75,7 +75,7 @@ class XTCComplexClassifier(XTCBaseClassifier):
     def load_data(self, subset):
         ix = {'train': 0, 'merge': 1, 'valid': 2}[subset]
         wv = count_matrix.CountFeature.load_dataset(subset)
-        se = np.nan_to_num(shared_entites.SharedEntities().load()[ix])
+        se = np.nan_to_num(shared_entites.SharedEntities().load_named(subset))
         ad = distances.AllDistances().load()[ix]
         md = wordmat_distance.WordMatDistance().load(subset)
         y = dataset.Dataset().load()[ix].is_duplicate.values
@@ -91,7 +91,7 @@ class XTCComplexClassifier(XTCBaseClassifier):
 
     def load_test_data(self):
         wv = tfidf_matrix.TFIDFFeature.load_dataset('test')
-        se = np.nan_to_num(shared_entites.SharedEntities().load_test())
+        se = np.nan_to_num(shared_entites.SharedEntities().load_named('test'))
         ad = distances.AllDistances().load_test()
         md = wordmat_distance.WordMatDistance().load('test')
         res = sp.hstack([wv, se, ad, md])
@@ -102,7 +102,7 @@ class XTCSimpleClassifier(XTCBaseClassifier):
 
     def load_data(self, subset):
         ix = {'train': 0, 'merge': 1, 'valid': 2}[subset]
-        se = np.nan_to_num(shared_entites.SharedEntities().load()[ix])
+        se = np.nan_to_num(shared_entites.SharedEntities().load_named(subset))
         ad = distances.AllDistances().load()[ix]
         md = wordmat_distance.WordMatDistance().load(subset)
         y = dataset.Dataset().load()[ix].is_duplicate.values
@@ -116,7 +116,7 @@ class XTCSimpleClassifier(XTCBaseClassifier):
         return res, y, cols
 
     def load_test_data(self):
-        se = np.nan_to_num(shared_entites.SharedEntities().load_test())
+        se = np.nan_to_num(shared_entites.SharedEntities().load_named('test'))
         ad = distances.AllDistances().load_test()
         md = wordmat_distance.WordMatDistance().load('test')
         res = np.hstack([se, ad, md])

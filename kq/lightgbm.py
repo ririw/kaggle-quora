@@ -34,14 +34,14 @@ class SVMData(luigi.Task):
             vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
             qvecs = question_vectors.QuestionVector().load_named(self.data_subset)
             dvecs = distances.AllDistances().load()[ix]
-            evecs = shared_entites.SharedEntities().load()[ix]
+            evecs = shared_entites.SharedEntities().load_named(self.data_subset)
             wmvecs = wordmat_distance.WordMatDistance().load(self.data_subset)
             labels = dataset.Dataset().load()[ix].is_duplicate.values
         else:
             vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
             qvecs = question_vectors.QuestionVector().load_named('test')
             dvecs = distances.AllDistances().load_test()
-            evecs = shared_entites.SharedEntities().load_test()
+            evecs = shared_entites.SharedEntities().load_named('test')
             wmvecs = wordmat_distance.WordMatDistance().load('test')
             labels = np.zeros(qvecs.shape[0], dtype='uint8')
 
