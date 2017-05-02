@@ -18,6 +18,8 @@ from kq import dataset, core, lightgbm
 
 
 class XGBlassifier(luigi.Task):
+    resources = {'cpu': 8}
+
     xgb_path = luigi.Parameter(default='/Users/richardweiss/Downloads/xgboost/xgboost')
 
     def requires(self):

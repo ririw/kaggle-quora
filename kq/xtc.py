@@ -12,6 +12,8 @@ from sklearn import ensemble, metrics
 
 
 class XTCBaseClassifier(luigi.Task):
+    resources = {'cpu': 8}
+
     base_name = 'XXX'
 
     def requires(self):
@@ -92,7 +94,7 @@ class XTCComplexClassifier(XTCBaseClassifier):
     def load_test_data(self):
         wv = tfidf_matrix.TFIDFFeature.load_dataset('test')
         se = np.nan_to_num(shared_entites.SharedEntities().load_named('test'))
-        ad = distances.AllDistances().load_test()
+        ad = distances.AllDistances().load_named('test')
         md = wordmat_distance.WordMatDistance().load('test')
         res = sp.hstack([wv, se, ad, md])
         return res
@@ -117,7 +119,7 @@ class XTCSimpleClassifier(XTCBaseClassifier):
 
     def load_test_data(self):
         se = np.nan_to_num(shared_entites.SharedEntities().load_named('test'))
-        ad = distances.AllDistances().load_test()
+        ad = distances.AllDistances().load_named('test')
         md = wordmat_distance.WordMatDistance().load('test')
         res = np.hstack([se, ad, md])
         return res

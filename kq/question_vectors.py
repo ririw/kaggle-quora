@@ -8,6 +8,7 @@ from kq import wordmat_distance
 
 
 class QuestionVectorTask(luigi.Task):
+    resources = {'cpu': 1}
     dataset = luigi.Parameter()
 
     def requires(self):

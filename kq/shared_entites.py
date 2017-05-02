@@ -14,6 +14,8 @@ from kq.dataset import Dataset
 from kq.utils import w2v_file
 
 class SharedEntity(luigi.Task):
+    resources = {'cpu': 1}
+
     task_name = luigi.Parameter()
     def requires(self):
         return Dataset()
@@ -53,7 +55,7 @@ class SharedEntity(luigi.Task):
         return res
 
     def output(self):
-        return luigi.LocalTarget('cache/distances/%s.npy')
+        return luigi.LocalTarget('cache/distances/%s.npy' % self.task_name)
 
     def run(self):
         self.nlp = spacy.load('en')

@@ -13,6 +13,8 @@ from kq.utils import w2v_file
 
 
 class WordMatDistance(luigi.Task):
+    resources = {'cpu': 8}
+
     def requires(self):
         yield count_matrix.CountFeature()
         yield tfidf_matrix.TFIDFFeature()
@@ -74,6 +76,8 @@ class WordMatDistance(luigi.Task):
 
 
 class SentenceVecs(luigi.Task):
+    resources = {'cpu': 8}
+
     def requires(self):
         yield dataset.Dataset()
 

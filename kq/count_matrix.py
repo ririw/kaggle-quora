@@ -14,6 +14,7 @@ from kq.dataset import Dataset
 __all__ = ['CountFeature']
 
 class CountFeature(luigi.Task):
+    resources = {'cpu': 1}
     English = None
     def requires(self):
         return Dataset()

@@ -88,7 +88,7 @@ class Stacks(luigi.Task):
                 "Shape: {} did not match expected {}" % (x.shape, shapes[r.task_id])
             #print(r.__class__.__name__, '\t', x.shape, type(x))
         data = pandas.DataFrame.from_dict(data)[list(data.keys())]
-        alldist = AllDistances().load_test()
+        alldist = AllDistances().load_named('test')
         dist_pd = pandas.DataFrame(alldist, columns=['alldist_%d' % i for i in range(alldist.shape[1])])
         data = pandas.concat([data, dist_pd], 1)
 

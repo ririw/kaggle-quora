@@ -11,6 +11,8 @@ from kq.dataset import Dataset
 
 
 class NaiveBayesClassifier(luigi.Task):
+    resources = {'cpu': 1}
+
     def requires(self):
         yield CountFeature()
         yield Dataset()

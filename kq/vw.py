@@ -14,6 +14,8 @@ from kq import dataset, question_vectors, distances, shared_entites, core, tfidf
 
 
 class VWData(luigi.Task):
+    resources = {'cpu': 1}
+
     data_subset = None  # train, test, merge or valid
     max_size = 100000
 
@@ -53,7 +55,7 @@ class VWData(luigi.Task):
             #vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
             vecs = count_matrix.CountFeature.load_dataset('test')
             qvecs = question_vectors.QuestionVector().load_named('test')
-            dvecs = distances.AllDistances().load_test()
+            dvecs = distances.AllDistances().load_named('test')
             evecs = shared_entites.SharedEntities().load_named('test')
             wmvecs = wordmat_distance.WordMatDistance().load('test')
             labels = np.zeros(qvecs.shape[0], dtype='uint8')

@@ -13,6 +13,8 @@ from kq.dataset import Dataset
 
 
 class TFIDFFeature(luigi.Task):
+    resources = {'cpu': 1}
+
     English = None
     def requires(self):
         return Dataset()

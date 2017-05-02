@@ -8,6 +8,8 @@ from kq import dataset
 
 
 class Vocab(luigi.Task):
+    resources = {'cpu': 1}
+
     def requires(self):
         return dataset.Dataset()
 

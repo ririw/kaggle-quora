@@ -53,6 +53,8 @@ def clean_text(text):
 
 
 class Dataset(luigi.Task):
+    resources = {'cpu': 1}
+
     def output(self):
         return luigi.LocalTarget('./cache/dataset-done')
 

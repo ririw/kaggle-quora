@@ -13,6 +13,7 @@ from kq import dataset, question_vectors, distances, shared_entites, core, tfidf
 
 
 class SVMData(luigi.Task):
+    resources = {'cpu': 1}
     data_subset = None  # train, test, merge or valid
     max_size = 50000
 
@@ -40,7 +41,7 @@ class SVMData(luigi.Task):
         else:
             vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
             qvecs = question_vectors.QuestionVector().load_named('test')
-            dvecs = distances.AllDistances().load_test()
+            dvecs = distances.AllDistances().load_named('test')
             evecs = shared_entites.SharedEntities().load_named('test')
             wmvecs = wordmat_distance.WordMatDistance().load('test')
             labels = np.zeros(qvecs.shape[0], dtype='uint8')
@@ -126,6 +127,8 @@ class TestSVMData(SVMData):
 
 
 class GBMClassifier(luigi.Task):
+    resources = {'cpu': 8}
+
     lightgbm_path = luigi.Parameter(default='/Users/richardweiss/Downloads/LightGBM/lightgbm')
     dataset_kind = luigi.Parameter()
 

@@ -10,6 +10,8 @@ from kq import core, keras_kaggle_data, distances
 
 
 class KerasModel(luigi.Task):
+    resources = {'cpu': 8}
+
     force = luigi.BoolParameter(default=False)
 
     def requires(self):

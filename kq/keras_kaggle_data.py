@@ -13,6 +13,8 @@ from kq import dataset
 __all__ = ['KaggleDataset']
 
 class KaggleDataset(luigi.Task):
+    resources = {'cpu': 8}
+
     MAX_SEQUENCE_LENGTH = 32
     max_nb_words = 250000
 
