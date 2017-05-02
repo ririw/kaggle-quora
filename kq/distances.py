@@ -148,7 +148,7 @@ class WordMoverDistance(DistanceBase):
 
     def run(self):
         data_dict = {}
-        kvecs = gensim.models.word2vec.Word2Vec.load_word2vec_format(w2v_file)
+        kvecs = gensim.models.KeyedVectors.load_word2vec_format(w2v_file)
         for name in {'train', 'merge', 'valid', 'test'}:
             data = dataset.Dataset().load_named(name)
             distances = [kvecs.wmdistance(q1, q2) for q1, q2 in zip(data.question1_raw, data.question2_raw)]

@@ -3,6 +3,7 @@ import os
 
 import distance
 import gensim
+import joblib
 import luigi
 import spacy
 import numpy as np
@@ -12,8 +13,8 @@ from tqdm import tqdm
 from kq.dataset import Dataset
 from kq.utils import w2v_file
 
-
-class SharedEntities(luigi.Task):
+class SharedEntity(luigi.Task):
+    task_name = luigi.Parameter()
     def requires(self):
         return Dataset()
 
@@ -38,7 +39,7 @@ class SharedEntities(luigi.Task):
         e2, flat2 = self.extract_ents(q2)
 
         if len(e1) == 0 or len(e2) == 0:
-            return np.ones(len(self.distances) + 1)
+            return np.ones(len(self.distances) + 3)
 
         mean_vec1 = np.mean(list(e1.values()))
         mean_vec2 = np.mean(list(e2.values()))
@@ -46,53 +47,45 @@ class SharedEntities(luigi.Task):
 
         distances = [d(mean_vec1, mean_vec2) for d in self.distances]
         jaccard_ents = distance.jaccard(e1.keys(), e2.keys())
-        stddiff = np.std(e1 - e2)
+        stddiff = np.std(mean_vec1 - mean_vec2)
 
-        return np.asarray(distances + [jaccard_ents, wmd, stddiff])
+        res = np.asarray(distances + [jaccard_ents, wmd, stddiff])
+        return res
 
     def output(self):
-        return luigi.LocalTarget('cache/entities.npz')
+        return luigi.LocalTarget('cache/distances/%s.npy')
 
     def run(self):
         self.nlp = spacy.load('en')
         self.kvecs = gensim.models.KeyedVectors.load_word2vec_format(w2v_file)
-        train, merge, valid = Dataset().load()
-        test = Dataset().load_test()
-
-        train_distances = []
-        merge_distances = []
-        valid_distances = []
-        test_distances = []
-
-        for _, r in tqdm(train.iterrows(), total=train.shape[0], desc='Processing: train'):
-            train_distances.append(self.entitiy_distances(r.question1_raw, r.question2_raw))
-        for _, r in tqdm(merge.iterrows(), total=merge.shape[0], desc='Processing: merge'):
-            merge_distances.append(self.entitiy_distances(r.question1_raw, r.question2_raw))
-        for _, r in tqdm(valid.iterrows(), total=valid.shape[0], desc='Processing: valid'):
-            valid_distances.append(self.entitiy_distances(r.question1_raw, r.question2_raw))
-        for _, r in tqdm(test.iterrows(), total=test.shape[0], desc='Processing: test'):
-            test_distances.append(self.entitiy_distances(r.question1_raw, r.question2_raw))
-
-        train_distances = np.vstack(train_distances)
-        merge_distances = np.vstack(merge_distances)
-        valid_distances = np.vstack(valid_distances)
-        test_distances = np.vstack(test_distances)
 
         self.output().makedirs()
-        tf = tempfile.NamedTemporaryFile(delete=False)
-        try:
-            np.savez(
-                tf,
-                train_distances=train_distances,
-                merge_distances=merge_distances,
-                valid_distances=valid_distances,
-                test_distances=test_distances,
-            )
-            os.rename(tf.name, self.output().path)
-        except:
-            os.remove(tf)
+        data = Dataset().load_named(self.task_name)
+        dists = []
+        for _, r in tqdm(data.iterrows(), total=data.shape[0],
+                         desc='Processing shared entites: ' + self.task_name):
+            dists.append(self.entitiy_distances(r.question1_raw, r.question2_raw))
+        np.save('cache/distances/%s_tmp.npy' % self.task_name, np.vstack(dists))
+        os.rename('cache/distances/%s_tmp.npy' % self.task_name, 'cache/distances/%s.npy' % self.task_name)
+
+
+class SharedEntities(luigi.Task):
+    def requires(self):
+        yield SharedEntity(task_name='test')
+        yield SharedEntity(task_name='train')
+        yield SharedEntity(task_name='merge')
+        yield SharedEntity(task_name='valid')
+
+    def complete(self):
+        for r in self.requires():
+            if not r.complete():
+                return False
+        return True
+
+    def run(self):
+        pass
 
     def load_named(self, name):
         assert self.complete()
-        r = np.load(self.output().path, mmap_mode='r')
-        return r['%s_distances' % name]
+        r = np.load('cache/distances/%s.npy' % name, mmap_mode='r')
+        return r

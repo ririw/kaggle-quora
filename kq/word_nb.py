@@ -16,16 +16,16 @@ class NaiveBayesClassifier(luigi.Task):
         yield Dataset()
 
     def output(self):
-        return luigi.LocalTarget('cache/nb/predictions.csv')
+        return luigi.LocalTarget('cache/nb/predictions.npy')
 
     def run(self):
         self.output().makedirs()
         cls = naive_bayes.BernoulliNB()
         cls.fit(CountFeature().load_dataset('train'),
-                Dataset().load_dataset('train').is_duplicate)
+                Dataset().load_named('train').is_duplicate)
 
         preds = cls.predict_proba(CountFeature().load_dataset('valid'))[:, 1]
-        valid_isdup = Dataset().load_named('train').is_duplicate
+        valid_isdup = Dataset().load_named('valid').is_duplicate
         weights = core.weights[valid_isdup.values]
         loss = metrics.log_loss(valid_isdup.values, preds, sample_weight=weights)
         print(colors.green | str(loss))

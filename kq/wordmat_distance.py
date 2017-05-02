@@ -82,7 +82,9 @@ class SentenceVecs(luigi.Task):
 
     def vectorize_sent(self, sent):
         dat = [(self.English.vocab[tok].vector) for tok in sent]
-        return np.mean(np.vstack(dat), 1)
+        if len(dat) == 0:
+            return np.zeros(300)
+        return np.mean(np.vstack(dat), 0)
 
     def vectorize_dataset(self, dataset_name):
         examples = dataset.Dataset().load_named(dataset_name)
