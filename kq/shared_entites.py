@@ -67,6 +67,7 @@ class SharedEntity(luigi.Task):
         for _, r in tqdm(data.iterrows(), total=data.shape[0],
                          desc='Processing shared entites: ' + self.task_name):
             dists.append(self.entitiy_distances(r.question1_raw, r.question2_raw))
+        dists = np.clip(dists, -1000, 1000)
         np.save('cache/distances/%s_tmp.npy' % self.task_name, np.vstack(dists))
         os.rename('cache/distances/%s_tmp.npy' % self.task_name, 'cache/distances/%s.npy' % self.task_name)
 
@@ -90,4 +91,4 @@ class SharedEntities(luigi.Task):
     def load_named(self, name):
         assert self.complete()
         r = np.load('cache/distances/%s.npy' % name, mmap_mode='r')
-        return r
+        return np.clip(r, -1000, 1000)

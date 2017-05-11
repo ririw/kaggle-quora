@@ -1,6 +1,6 @@
-import tempfile
 import os
 
+import dask.dataframe
 import distance
 import gensim
 import luigi
@@ -11,7 +11,10 @@ from kq import dataset
 from kq.utils import w2v_file
 
 
-class DistanceBase(luigi.Task):
+class DistanceSubTask(luigi.Task):
+    resources = {'cpu': 1}
+    dataset = luigi.Parameter()
+
     def dist_fn(self, xs, ys):
         raise NotImplementedError()
 
@@ -23,148 +26,162 @@ class DistanceBase(luigi.Task):
         return dataset.Dataset()
 
     def output(self):
-        return luigi.LocalTarget('./cache/distance-%s.npz' % self.name)
+        return luigi.LocalTarget('./cache/functional-distance/%s-%s.npy' % (self.name, self.dataset))
 
     def run(self):
-        train, merge, valid = dataset.Dataset().load()
-        train_dists = []
-        for _, row in tqdm(train.iterrows(), desc='Train distance %s' % self.name, total=train.shape[0]):
-            train_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
-        train_dists = np.asarray(train_dists)
+        self.output().makedirs()
+        data = dataset.Dataset().load_named(self.dataset)
+        dists = np.zeros(data.shape[0])
+        i = 0
+        for _, row in tqdm(data.iterrows(),
+                           desc='%s distance %s' % (self.dataset, self.name),
+                           total=data.shape[0]):
+            dists[i] = self.dist_fn(row.question1_tokens, row.question2_tokens)
+            i += 1
+        np.save('cache/functional-distance/%s-%s.tmp.npy' % (self.name, self.dataset), dists)
+        os.rename('cache/functional-distance/%s-%s.tmp.npy' % (self.name, self.dataset),
+                  'cache/functional-distance/%s-%s.npy' % (self.name, self.dataset))
 
-        merge_dists = []
-        for _, row in tqdm(merge.iterrows(), desc='Merge distance %s' % self.name, total=merge.shape[0]):
-            merge_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
-        merge_dists = np.asarray(merge_dists)
 
-        valid_dists = []
-        for _, row in tqdm(valid.iterrows(), desc='Valid distance %s' % self.name, total=valid.shape[0]):
-            valid_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
-        valid_dists = np.asarray(valid_dists)
+class DistancesGroup(luigi.Task):
+    SubTask = None
 
-        del train, valid, merge
+    def requires(self):
+        yield self.SubTask(dataset='train')
+        yield self.SubTask(dataset='valid')
+        yield self.SubTask(dataset='merge')
+        yield self.SubTask(dataset='test')
 
-        test = dataset.Dataset().load_test()
-        test_dists = []
-        for _, row in tqdm(test.iterrows(), desc='Test distance %s' % self.name, total=test.shape[0]):
-            test_dists.append(self.dist_fn(row.question1_tokens, row.question2_tokens))
-        test_dists = np.asarray(test_dists)
+    def complete(self):
+        for r in self.requires():
+            if not r.complete():
+                return False
+        return True
 
-        tf = tempfile.NamedTemporaryFile(delete=False)
-        try:
-            np.savez(tf, train_dists=train_dists, valid_dists=valid_dists,
-                     test_dists=test_dists, merge_dists=merge_dists)
-            os.rename(tf.name, self.output().path)
-        except Exception as e:
-            os.remove(tf)
-            raise
-
-    def load(self):
-        assert self.complete()
-        f = np.load(self.output().path)
-        return f['train_dists'], f['merge_dists'], f['valid_dists']
-
-    def load_test(self):
-        assert self.complete()
-        f = np.load(self.output().path)
-        return f['test_dists']
+    def run(self):
+        pass
 
     def load_named(self, name):
-        assert name in {'train', 'valid', 'merge', 'test'}
-        assert self.complete()
-        f = np.load(self.output().path, mmap_mode='r')
-        return f['%s_dists' % name]
+        ds = self.SubTask(dataset='train').name
+        res = np.clip(
+            np.nan_to_num(np.load('cache/functional-distance/%s-%s.npy' % (ds, name))),
+            -1000, 1000)
+        return res
 
 
-class JaccardDistance(DistanceBase):
-    def dist_fn(self, xs, ys):
-        try:
-            return distance.jaccard(xs, ys)
-        except ZeroDivisionError:
-            return 1
+class JaccardDistance(DistancesGroup):
+    class JaccardDistanceSubTask(DistanceSubTask):
+        def dist_fn(self, xs, ys):
+            try:
+                return distance.jaccard(xs, ys)
+            except ZeroDivisionError:
+                return 1
 
-    @property
-    def name(self):
-        return 'jaccard_distance'
+        @property
+        def name(self):
+            return 'jaccard'
 
-
-class LevenshteinDistance1(DistanceBase):
-    def dist_fn(self, xs, ys):
-        return distance.nlevenshtein(xs, ys, method=1)
-
-    @property
-    def name(self):
-        return 'levenshtein1'
+    SubTask = JaccardDistanceSubTask
 
 
-class LevenshteinDistance2(DistanceBase):
-    def dist_fn(self, xs, ys):
-        return distance.nlevenshtein(xs, ys, method=2)
+class LevenshteinDistance1(DistancesGroup):
+    class LevenshteinDistance1SubTask(DistanceSubTask):
+        def dist_fn(self, xs, ys):
+            return distance.nlevenshtein(xs, ys, method=1)
 
-    @property
-    def name(self):
-        return 'levenshtein2'
+        @property
+        def name(self):
+            return 'levenshtein1'
 
-
-class SorensenDistance(DistanceBase):
-    def dist_fn(self, xs, ys):
-        try:
-            return distance.sorensen(xs, ys)
-        except ZeroDivisionError:
-            return 1
-
-    @property
-    def name(self):
-        return 'sorensen'
+    SubTask = LevenshteinDistance1SubTask
 
 
-class WordsDistance(DistanceBase):
-    def dist_fn(self, xs, ys):
-        return abs(len(xs) - len(ys))
+class LevenshteinDistance2(DistancesGroup):
+    class LevenshteinDistance2SubTask(DistanceSubTask):
+        def dist_fn(self, xs, ys):
+            return distance.nlevenshtein(xs, ys, method=2)
 
-    @property
-    def name(self):
-        return 'word_dist'
+        @property
+        def name(self):
+            return 'levenshtein2'
 
-
-class CharsDistance(DistanceBase):
-    def dist_fn(self, xs, ys):
-        return abs(sum((len(x) for x in xs)) - sum((len(y) for y in ys)))
-
-    @property
-    def name(self):
-        return 'char_dist'
+    SubTask = LevenshteinDistance2SubTask
 
 
-class WordMoverDistance(DistanceBase):
-    @property
-    def name(self):
-        return 'wmd_dist'
-    def requires(self):
-        return dataset.Dataset()
+class SorensenDistance(DistancesGroup):
+    class SorensenDistanceSubTask(DistanceSubTask):
+        def dist_fn(self, xs, ys):
+            try:
+                return distance.sorensen(xs, ys)
+            except ZeroDivisionError:
+                return 1
 
-    def output(self):
-        return luigi.LocalTarget('./cache/distance-wmd.npz')
+        @property
+        def name(self):
+            return 'sorensen'
 
-    def run(self):
-        data_dict = {}
-        kvecs = gensim.models.KeyedVectors.load_word2vec_format(w2v_file)
-        for name in {'train', 'merge', 'valid', 'test'}:
-            data = dataset.Dataset().load_named(name)
-            distances = [kvecs.wmdistance(q1, q2) for q1, q2 in zip(data.question1_raw, data.question2_raw)]
-            data_dict[name] = np.asarray(distances)
+    SubTask = SorensenDistanceSubTask
 
-        tf = tempfile.NamedTemporaryFile(delete=False)
-        try:
-            np.savez(tf,
-                     train_dists=data_dict['train'],
-                     valid_dists=data_dict['train'],
-                     merge_dists=data_dict['merge'],
-                     test_dists=data_dict['test'])
-            os.rename(tf.name, self.output().path)
-        except Exception as e:
-            os.remove(tf)
-            raise
+
+class WordsDistance(DistancesGroup):
+    class WordsDistanceSubTask(DistanceSubTask):
+        def dist_fn(self, xs, ys):
+            return abs(len(xs) - len(ys))
+
+        @property
+        def name(self):
+            return 'word_dist'
+
+    SubTask = WordsDistanceSubTask
+
+
+class CharsDistance(DistancesGroup):
+    class CharsDistanceSubTask(DistanceSubTask):
+        def dist_fn(self, xs, ys):
+            return abs(sum((len(x) for x in xs)) - sum((len(y) for y in ys)))
+
+        @property
+        def name(self):
+            return 'char_dist'
+
+    SubTask = CharsDistanceSubTask
+
+
+
+class WordMoverDistance(DistancesGroup):
+    class WordMoverDistanceSubTask(DistanceSubTask):
+        resources = dict(cpu=2, mem=2)
+
+        def dist_fn(self, xs, ys):
+            assert False, "Should never be called."
+
+        def run(self):
+            self.output().makedirs()
+            kvecs = gensim.models.KeyedVectors.load_word2vec_format(w2v_file)
+            data = dataset.Dataset().load_named(self.dataset)
+            dists = np.zeros(data.shape[0])
+            i = 0
+
+            #def wmd(row):
+            #    return kvecs.wmdistance(row.question1_raw, row.question2_raw)
+            #dists = dask.dataframe.from_pandas(data, npartitions=16, sort=False).apply(wmd).compute().values
+
+            for q1, q2 in tqdm(zip(data.question1_raw, data.question2_raw),
+                               total=data.question1_raw.shape[0],
+                               desc='Computing %s WMD' % self.dataset):
+                dists[i] = kvecs.wmdistance(q1, q2)
+                i += 1
+
+            np.save('cache/functional-distance/%s-%s.tmp.npy' % (self.name, self.dataset), dists)
+            os.rename('cache/functional-distance/%s-%s.tmp.npy' % (self.name, self.dataset),
+                      'cache/functional-distance/%s-%s.npy' % (self.name, self.dataset))
+
+        @property
+        def name(self):
+            return 'wmd_dist'
+
+    SubTask = WordMoverDistanceSubTask
+
 
 class AllDistances(luigi.Task):
     def requires(self):
@@ -189,7 +206,9 @@ class AllDistances(luigi.Task):
         all_train, all_merge, all_valid = [], [], []
         for req in self.requires():
             assert req.complete()
-            train, merge, valid = req.load()
+            train = req.load_named('train')
+            merge = req.load_named('merge')
+            valid = req.load_named('valid')
             all_train.append(train)
             all_merge.append(merge)
             all_valid.append(valid)
@@ -204,7 +223,7 @@ class AllDistances(luigi.Task):
         all_test = []
         for req in self.requires():
             assert req.complete()
-            test = req.load_test()
+            test = req.load_named('test')
             all_test.append(test)
 
         return np.vstack(all_test).T

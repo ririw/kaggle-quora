@@ -146,7 +146,6 @@ class VWClassifier(luigi.Task):
         except FileNotFoundError:
             pass
         local[self.vw_path]['--binary ' \
-                            '-q QE -q QD ' \
                             '-f cache/vw/mdl ' \
                             '--passes 10 --cache_file cache/vw/cache -k ' \
                             '--l2 0.0001 ' \

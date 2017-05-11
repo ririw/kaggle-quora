@@ -54,7 +54,7 @@ class CountFeature(luigi.Task):
         tqdm.pandas(tqdm)
         self.tokenzier = treebank.TreebankWordTokenizer()
         self.stemmer = snowball.SnowballStemmer('english')
-        self.vectorizer = CountVectorizer(ngram_range=(1,2), min_df=50)
+        self.vectorizer = CountVectorizer(ngram_range=(1,3), min_df=50)
         train, merge, valid = Dataset().load()
 
         logging.info('Vectorizing train')

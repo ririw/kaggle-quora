@@ -1,18 +1,15 @@
-import os
-
 import luigi
-import pandas
 import numpy as np
+import pandas
 import scipy.sparse as sp
 from plumbum import colors
-
-from kq import core, distances, dataset, question_vectors, shared_entites, tfidf_matrix, count_matrix, wordmat_distance
 from sklearn import ensemble, metrics
 
+from kq import core, distances, dataset, shared_entites, count_matrix, wordmat_distance
 
 
 class XTCBaseClassifier(luigi.Task):
-    resources = {'cpu': 8}
+    resources = {'cpu': 6}
 
     base_name = 'XXX'
 
@@ -33,9 +30,9 @@ class XTCBaseClassifier(luigi.Task):
         X, y, cols = self.load_data('train')
         weights = dict(enumerate(core.weights))
         cls = ensemble.ExtraTreesClassifier(
-            n_estimators=512, n_jobs=2, verbose=10,
+            n_estimators=500, n_jobs=-1, verbose=10,
             bootstrap=True, min_samples_leaf=10,
-            class_weight=weights)
+            oob_score=False, class_weight=weights)
         cls.fit(X, y)
         importances = pandas.Series(
             cls.feature_importances_,
@@ -82,6 +79,11 @@ class XTCComplexClassifier(XTCBaseClassifier):
         md = wordmat_distance.WordMatDistance().load(subset)
         y = dataset.Dataset().load()[ix].is_duplicate.values
 
+        print('wv: ', wv.min(), wv.max(), wv.shape)
+        print('se: ', se.min(), se.max(), se.shape)
+        print('ad: ', ad.min(), ad.max(), ad.shape)
+        print('md: ', md.min(), md.max(), md.shape)
+
         res = sp.hstack([wv, se, ad, md])
         cols = (
               ['count.%d' % i for i in range(wv.shape[1])]
@@ -92,10 +94,17 @@ class XTCComplexClassifier(XTCBaseClassifier):
         return res, y, cols
 
     def load_test_data(self):
-        wv = tfidf_matrix.TFIDFFeature.load_dataset('test')
+        wv = count_matrix.CountFeature.load_dataset('test')
         se = np.nan_to_num(shared_entites.SharedEntities().load_named('test'))
         ad = distances.AllDistances().load_named('test')
         md = wordmat_distance.WordMatDistance().load('test')
+
+        print('wv: ', wv.min(), wv.max(), wv.shape)
+        print('se: ', se.min(), se.max(), se.shape)
+        print('ad: ', ad.min(), ad.max(), ad.shape)
+        print('md: ', md.min(), md.max(), md.shape)
+
+
         res = sp.hstack([wv, se, ad, md])
         return res
 

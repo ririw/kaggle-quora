@@ -20,7 +20,7 @@ from kq import dataset, core, lightgbm
 class XGBlassifier(luigi.Task):
     resources = {'cpu': 8}
 
-    xgb_path = luigi.Parameter(default='/Users/richardweiss/Downloads/xgboost/xgboost')
+    xgb_path = luigi.Parameter(default=os.path.expanduser('~/Downloads/xgboost/xgboost'))
 
     def requires(self):
         yield lightgbm.TrainSVMData()
@@ -43,17 +43,16 @@ class XGBlassifier(luigi.Task):
     train_conf = """
     booster = gbtree
     objective = binary:logistic
-    #eval_metric=logloss
 
     eta = 0.1
-    max_depth = 7
+    max_depth = 6
     scale_pos_weight=0.46
     early_stop_round = 10
 
-    num_round = 250
+    num_round = 1000
     save_period = 0
     data = "cache/svm_data/simple/train.svm"
-    eval[test] = "cache/simple/valid.svm"
+    eval[test] = "cache/svm_data/simple/valid.svm"
     model_out = "cache/xgb/model"
     nthread=4
     """

@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from plumbum import local, FG, colors
 
-from kq import dataset, question_vectors, distances, shared_entites, core, tfidf_matrix, wordmat_distance
+from kq import dataset, question_vectors, distances, shared_entites, core, tfidf_matrix, wordmat_distance, question_freq
 
 
 class SVMData(luigi.Task):
@@ -24,60 +24,66 @@ class SVMData(luigi.Task):
         yield shared_entites.SharedEntities()
         yield tfidf_matrix.TFIDFFeature()
         yield wordmat_distance.WordMatDistance()
+        yield question_freq.QuestionFrequencyFeature()
 
     def output(self):
         return luigi.LocalTarget('cache/svm_data/done_%s' % self.data_subset)
 
     def run(self):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
-        if self.data_subset in {'train', 'valid', 'merge'}:
-            ix = {'train': 0, 'merge': 1, 'valid': 2}[self.data_subset]
-            vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
-            qvecs = question_vectors.QuestionVector().load_named(self.data_subset)
-            dvecs = distances.AllDistances().load()[ix]
-            evecs = shared_entites.SharedEntities().load_named(self.data_subset)
-            wmvecs = wordmat_distance.WordMatDistance().load(self.data_subset)
-            labels = dataset.Dataset().load()[ix].is_duplicate.values
-        else:
-            vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
-            qvecs = question_vectors.QuestionVector().load_named('test')
-            dvecs = distances.AllDistances().load_named('test')
-            evecs = shared_entites.SharedEntities().load_named('test')
-            wmvecs = wordmat_distance.WordMatDistance().load('test')
-            labels = np.zeros(qvecs.shape[0], dtype='uint8')
+        simple_vecs = [
+            question_vectors.QuestionVector().load_named(self.data_subset),
+            shared_entites.SharedEntities().load_named(self.data_subset),
+            wordmat_distance.WordMatDistance().load(self.data_subset),
+            question_freq.QuestionFrequencyFeature().load(self.data_subset),
+            distances.AllDistances().load_named(self.data_subset)
+        ]
+        complex_vecs = [
+            tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
+        ]
 
-        qvec_offset = 1
-        dvec_offset = qvecs.shape[1]
-        evec_offset = dvec_offset + dvecs.shape[1]
-        wmvec_offset = evec_offset + evecs.shape[1]
-        vecs_offset = wmvec_offset + wmvecs.shape[1]
+        labels = dataset.Dataset().load_named(self.data_subset).is_duplicate.values
+
+        offsets = np.cumsum([0] + [v.shape[1] for v in simple_vecs] + [v.shape[1] for v in complex_vecs])
 
         def write_row(i, f1, f2, f3):
-            row = vecs[i]
-            qvec = np.nan_to_num(qvecs[i])
-            dvec = np.nan_to_num(dvecs[i])
-            evec = np.nan_to_num(evecs[i])
-            wmvec = np.nan_to_num(wmvecs[i])
+            simple_vec = [v[i] for v in simple_vecs]
+            complex_vec = [v[i] for v in complex_vecs]
             label = labels[i]
 
-            qvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(qvec, start=qvec_offset))
-            dvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(dvec, start=dvec_offset))
-            evec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(evec, start=evec_offset))
-            wmvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(wmvec, start=wmvec_offset))
-            entries = " ".join(("%d:%.2f" % (ind + vecs_offset, data) for ind, data in zip(row.indices, row.data)))
-            f1.write("%d %s %s %s %s %s\n" % (label, qvec_entries, dvec_entries, evec_entries, wmvec_entries, entries))
-            f2.write('%d %s %s %s %s\n' % (label, qvec_entries, dvec_entries, evec_entries, wmvec_entries))
-            f3.write('%d %s\n' % (label, wmvec_entries))
+            simple_entries = []
+            for vec, offset in zip(simple_vec, offsets):
+                v = np.nan_to_num(vec)
+                txtform = ' '.join('%d:%f' % ix_v for ix_v in enumerate(v, start=offset))
+                simple_entries.append(txtform)
+
+            complex_entries = []
+            for vec, offset in zip(complex_vec, offsets[len(simple_vec):]):
+                entries = " ".join(("%d:%.2f" % (ind + offset, data) for ind, data in zip(vec.indices, vec.data)))
+                complex_entries.append(entries)
+
+            f1.write(str(label) + ' ')
+            f1.write(' '.join(simple_entries))
+            f1.write(' '.join(complex_entries))
+            f1.write('\n')
+
+            f2.write(str(label) + ' ')
+            f2.write(' '.join(simple_entries))
+            f2.write('\n')
+
+            f3.write(str(label) + ' ')
+            f3.write(' '.join(complex_entries))
+            f3.write('\n')
 
         os.makedirs('cache/svm_data/simple', exist_ok=True)
         os.makedirs('cache/svm_data/complex', exist_ok=True)
         os.makedirs('cache/svm_data/words', exist_ok=True)
         if self.data_subset == 'test':
-            for start_ix in tqdm(self.test_target_indexes(vecs.shape[0])):
+            for start_ix in tqdm(self.test_target_indexes(labels.shape[0])):
                 with open('cache/svm_data/complex/test_%d.svm.tmp' % start_ix, 'w') as f1, \
                      open('cache/svm_data/simple/test_%d.svm.tmp' % start_ix, 'w') as f2, \
                      open('cache/svm_data/words/test_%d.svm.tmp' % start_ix, 'w') as f3:
-                    for i in range(start_ix, min(start_ix + self.max_size, vecs.shape[0])):
+                    for i in range(start_ix, min(start_ix + self.max_size, labels.shape[0])):
                         write_row(i, f1, f2, f3)
                 os.rename('cache/svm_data/simple/test_%d.svm.tmp' % start_ix,
                           'cache/svm_data/simple/test_%d.svm' % start_ix)
@@ -89,7 +95,7 @@ class SVMData(luigi.Task):
             with open('cache/svm_data/complex/%s.svm.tmp' % self.data_subset, 'w') as f1, \
                  open('cache/svm_data/simple/%s.svm.tmp' % self.data_subset, 'w') as f2, \
                  open('cache/svm_data/words/%s.svm.tmp' % self.data_subset, 'w') as f3:
-                for i in tqdm(range(qvecs.shape[0]), desc='writing %s data' % self.data_subset):
+                for i in tqdm(range(labels.shape[0]), desc='writing %s data' % self.data_subset):
                     write_row(i, f1, f2, f3)
             os.rename('cache/svm_data/simple/%s.svm.tmp' % self.data_subset,
                       'cache/svm_data/simple/%s.svm' % self.data_subset)
@@ -129,7 +135,7 @@ class TestSVMData(SVMData):
 class GBMClassifier(luigi.Task):
     resources = {'cpu': 8}
 
-    lightgbm_path = luigi.Parameter(default='/Users/richardweiss/Downloads/LightGBM/lightgbm')
+    lightgbm_path = luigi.Parameter(default=os.path.expanduser('~/Downloads/LightGBM/lightgbm'))
     dataset_kind = luigi.Parameter()
 
     def make_path(self, *rest):
@@ -251,8 +257,11 @@ class GBMClassifier(luigi.Task):
     num_leaves = 1500
     scale_pos_weight = 0.46
     min_data_in_leaf = 25
+    feature_fraction = 0.75
+    bagging_fraction = 0.75
+    bagging_freq = 3
 
-    is_enable_sparse = true
+    is_sparse = true
     use_two_round_loading = false
     is_save_binary_file = false
     """

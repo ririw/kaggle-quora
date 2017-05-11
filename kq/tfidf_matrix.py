@@ -54,11 +54,13 @@ class TFIDFFeature(luigi.Task):
         tqdm.pandas(tqdm)
         self.tokenzier = treebank.TreebankWordTokenizer()
         self.stemmer = snowball.SnowballStemmer('english')
-        self.vectorizer = TfidfVectorizer(ngram_range=(1,2), min_df=10)
+        self.vectorizer = TfidfVectorizer(ngram_range=(1,2), min_df=50)
         train, merge, valid = Dataset().load()
 
         logging.info('Vectorizing train')
         train_mat, q1, q2 = self.fit(train)
+        train_cols = train_mat.shape[1]
+        train_q1_cols, train_q2_cols = q1.shape[1], q2.shape[1]
         scipy.io.mmwrite('cache/tfidf/train.mtx', train_mat)
         scipy.io.mmwrite('cache/tfidf/train_q1.mtx', q1)
         scipy.io.mmwrite('cache/tfidf/train_q2.mtx', q2)
@@ -66,6 +68,8 @@ class TFIDFFeature(luigi.Task):
 
         logging.info('Vectorizing valid')
         valid_mat, q1, q2 = self.transform(valid)
+        assert valid_mat.shape[1] == train_cols
+        assert q1.shape[1] == train_q1_cols and q2.shape[1] == train_q2_cols
         scipy.io.mmwrite('cache/tfidf/valid.mtx', valid_mat)
         scipy.io.mmwrite('cache/tfidf/valid_q1.mtx', q1)
         scipy.io.mmwrite('cache/tfidf/valid_q2.mtx', q2)
@@ -73,6 +77,8 @@ class TFIDFFeature(luigi.Task):
 
         logging.info('Vectorizing merge')
         merge_mat, q1, q2 = self.transform(merge)
+        assert merge_mat.shape[1] == train_cols
+        assert q1.shape[1] == train_q1_cols and q2.shape[1] == train_q2_cols
         scipy.io.mmwrite('cache/tfidf/merge.mtx', merge_mat)
         scipy.io.mmwrite('cache/tfidf/merge_q1.mtx', q1)
         scipy.io.mmwrite('cache/tfidf/merge_q2.mtx', q2)
@@ -81,9 +87,13 @@ class TFIDFFeature(luigi.Task):
         logging.info('Vectorizing test')
         test = Dataset().load_test()
         test_mat, q1, q2 = self.transform(test)
+        assert test_mat.shape[1] == train_cols
+        assert q1.shape[1] == train_q1_cols and q2.shape[1] == train_q2_cols
         scipy.io.mmwrite('cache/tfidf/test.mtx', test_mat)
         scipy.io.mmwrite('cache/tfidf/test_q1.mtx', q1)
         scipy.io.mmwrite('cache/tfidf/test_q2.mtx', q2)
+
+        assert self.load_dataset('test').shape[1] == train_cols
 
         with self.output().open('w') as f:
             pass

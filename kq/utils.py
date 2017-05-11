@@ -9,7 +9,7 @@ import threading
 import time
 import multiprocessing
 import numpy as np
-
+import os
 
 class GeneratorEnqueuer:
     """Builds a queue out of a data generator.
@@ -101,4 +101,4 @@ class GeneratorEnqueuer:
         self._stop_event = None
         self.queue = None
 
-w2v_file = '/Users/richardweiss/Datasets/glove.6B.300d.w2v'
+w2v_file = os.path.expanduser('~/Datasets/glove.6B.300d.w2v')

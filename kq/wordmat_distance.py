@@ -13,7 +13,7 @@ from kq.utils import w2v_file
 
 
 class WordMatDistance(luigi.Task):
-    resources = {'cpu': 8}
+    resources = {'cpu': 4}
 
     def requires(self):
         yield count_matrix.CountFeature()
@@ -76,7 +76,7 @@ class WordMatDistance(luigi.Task):
 
 
 class SentenceVecs(luigi.Task):
-    resources = {'cpu': 8}
+    resources = {'cpu': 4}
 
     def requires(self):
         yield dataset.Dataset()
@@ -85,7 +85,7 @@ class SentenceVecs(luigi.Task):
         return luigi.LocalTarget('cache/question_vectors/done')
 
     def vectorize_sent(self, sent):
-        dat = [(self.English.vocab[tok].vector) for tok in sent]
+        dat = [self.vectors[tok] for tok in sent if tok in self.vectors]
         if len(dat) == 0:
             return np.zeros(300)
         return np.mean(np.vstack(dat), 0)
@@ -93,40 +93,40 @@ class SentenceVecs(luigi.Task):
     def vectorize_dataset(self, dataset_name):
         examples = dataset.Dataset().load_named(dataset_name)
         all_examples = pandas.concat([examples.question1_tokens, examples.question2_tokens])
-        all_vecs = np.vstack(all_examples.progress_apply(self.vectorize_sent))
+        all_vecs = np.vstack(all_examples.progress_apply(self.vectorize_sent)).astype(np.float16)
         return all_vecs[:all_vecs.shape[0]//2], all_vecs[all_vecs.shape[0]//2:]
 
     def run(self):
         tqdm.pandas(tqdm)
         self.output().makedirs()
-        self.English = spacy.en.English()
+        self.vectors = gensim.models.KeyedVectors.load_word2vec_format('/home/riri/Datasets/glove.6B.50d.w2v')
 
         train_data = self.vectorize_dataset('train')
-        np.save('cache/question_vectors/train_1.npy', train_data[0])
-        np.save('cache/question_vectors/train_2.npy', train_data[1])
+        np.savez('cache/question_vectors/train_1.npz', train_data[0])
+        np.savez('cache/question_vectors/train_2.npz', train_data[1])
         del train_data
 
         merge_data = self.vectorize_dataset('merge')
-        np.save('cache/question_vectors/merge_1.npy', merge_data[0])
-        np.save('cache/question_vectors/merge_2.npy', merge_data[1])
+        np.savez('cache/question_vectors/merge_1.npz', merge_data[0])
+        np.savez('cache/question_vectors/merge_2.npz', merge_data[1])
         del merge_data
 
         valid_data = self.vectorize_dataset('valid')
-        np.save('cache/question_vectors/valid_1.npy', valid_data[0])
-        np.save('cache/question_vectors/valid_2.npy', valid_data[1])
+        np.savez('cache/question_vectors/valid_1.npz', valid_data[0])
+        np.savez('cache/question_vectors/valid_2.npz', valid_data[1])
         del valid_data
 
         test_data = self.vectorize_dataset('test')
-        np.save('cache/question_vectors/test_1.npy',  test_data[0])
-        np.save('cache/question_vectors/test_2.npy',  test_data[1])
+        np.savez('cache/question_vectors/test_1.npz',  test_data[0])
+        np.savez('cache/question_vectors/test_2.npz',  test_data[1])
 
         with self.output().open('w') as f:
             pass
 
     def load(self, name):
         assert self.complete()
-        a = np.load('cache/question_vectors/%s_1.npy' % name, mmap_mode='r')
-        b = np.load('cache/question_vectors/%s_2.npy' % name, mmap_mode='r')
+        a = np.load('cache/question_vectors/%s_1.npz' % name)['arr_0']
+        b = np.load('cache/question_vectors/%s_2.npz' % name)['arr_0']
 
         return a, b
 
@@ -151,7 +151,7 @@ class WeightedSentenceVecs(luigi.Task):
     def vectorize_dataset(self, dataset_name):
         examples = dataset.Dataset().load_named(dataset_name)
         all_examples = pandas.concat([examples.question1_tokens, examples.question2_tokens])
-        all_vecs = np.vstack(all_examples.progress_apply(self.vectorize_sent))
+        all_vecs = np.vstack(all_examples.progress_apply(self.vectorize_sent)).astype(np.float16)
         return all_vecs[:all_vecs.shape[0]//2], all_vecs[all_vecs.shape[0]//2:]
 
     def run(self):
@@ -178,30 +178,30 @@ class WeightedSentenceVecs(luigi.Task):
 
         train_data = [v-subtract_component for v in train_vecs]
 
-        np.save('cache/simple_vectors/train_1.npy', train_data[0])
-        np.save('cache/simple_vectors/train_2.npy', train_data[1])
+        np.savez('cache/simple_vectors/train_1.npz', train_data[0])
+        np.savez('cache/simple_vectors/train_2.npz', train_data[1])
         del train_data
 
         merge_data = [v-subtract_component for v in self.vectorize_dataset('merge')]
-        np.save('cache/simple_vectors/merge_1.npy', merge_data[0])
-        np.save('cache/simple_vectors/merge_2.npy', merge_data[1])
+        np.savez('cache/simple_vectors/merge_1.npz', merge_data[0])
+        np.savez('cache/simple_vectors/merge_2.npz', merge_data[1])
         del merge_data
 
         valid_data = [v-subtract_component for v in self.vectorize_dataset('valid')]
-        np.save('cache/simple_vectors/valid_1.npy', valid_data[0])
-        np.save('cache/simple_vectors/valid_2.npy', valid_data[1])
+        np.savez('cache/simple_vectors/valid_1.npz', valid_data[0])
+        np.savez('cache/simple_vectors/valid_2.npz', valid_data[1])
         del valid_data
 
         test_data = [v-subtract_component for v in self.vectorize_dataset('test')]
-        np.save('cache/simple_vectors/test_1.npy',  test_data[0])
-        np.save('cache/simple_vectors/test_2.npy',  test_data[1])
+        np.savez('cache/simple_vectors/test_1.npz',  test_data[0])
+        np.savez('cache/simple_vectors/test_2.npz',  test_data[1])
 
         with self.output().open('w') as f:
             f.write(','.join(['%f' % v for v in subtract_component]))
 
     def load(self, name):
         assert self.complete()
-        a = np.load('cache/simple_vectors/%s_1.npy' % name, mmap_mode='r')
-        b = np.load('cache/simple_vectors/%s_2.npy' % name, mmap_mode='r')
+        a = np.load('cache/simple_vectors/%s_1.npz' % name, mmap_mode='r')
+        b = np.load('cache/simple_vectors/%s_2.npz' % name, mmap_mode='r')
 
         return a, b

@@ -268,7 +268,7 @@ model_checkpoint = ModelCheckpoint(bst_model_path, save_best_only=True, save_wei
 
 hist = model.fit([train_data_1, train_data_2], train_labels,
         validation_data=([valid_data_1, valid_data_2], valid_labels, valid_weights),
-        epochs=200, batch_size=2048, shuffle=True,
+        epochs=200, batch_size=64, shuffle=True,
         class_weight=class_weight, callbacks=[early_stopping, model_checkpoint])
 
 model.load_weights(bst_model_path)

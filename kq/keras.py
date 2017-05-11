@@ -10,7 +10,7 @@ from kq import core, keras_kaggle_data, distances
 
 
 class KerasModel(luigi.Task):
-    resources = {'cpu': 8}
+    resources = {'cpu': 4, 'gpu': 1}
 
     force = luigi.BoolParameter(default=False)
 
@@ -29,6 +29,7 @@ class KerasModel(luigi.Task):
         return [d1, d2, ds], labels
 
     def run(self):
+        batch_size=128
         self.output().makedirs()
         train_data, train_labels = self.load_dataset('train')
         valid_data, valid_labels = self.load_dataset('valid')
@@ -41,33 +42,36 @@ class KerasModel(luigi.Task):
                            train_data[2].shape[1])
         model.summary()
 
-        early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
+        early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=6)
+        slow_plateau = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', patience=3)
+        model_path = 'cache/%s/model.h5' % self.base_name
+        model_checkpointer = keras.callbacks.ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True)
+
+        train_data = [
+            np.vstack([train_data[0], train_data[1]]),
+            np.vstack([train_data[1], train_data[0]]),
+            np.vstack([train_data[2], train_data[2]])]
+        train_labels = np.concatenate([train_labels, train_labels])
 
         model.fit(
             train_data, train_labels,
             validation_data=(valid_data, valid_labels, valid_weights),
-            epochs=200, batch_size=2048, shuffle=True,
-            class_weight=class_weights, callbacks=[early_stopping])
+            epochs=20, batch_size=batch_size, shuffle=True,
+            class_weight=class_weights, callbacks=[early_stopping, slow_plateau, model_checkpointer])
+        model.load_weights(model_path)
 
-        valid_preds = model.predict(valid_data, batch_size=1024)
+        valid_preds = model.predict(valid_data, batch_size=batch_size)
         print(colors.green | ('Valid loss: %f ' % core.score_data(valid_labels, valid_preds)))
-        valid_preds += model.predict([valid_data[1], valid_data[0]. valid_data[2]], batch_size=1024)
-        valid_preds /= 2
-        print(colors.green | colors.bold | ('Valid loss (crossed): %f' % core.score_data(valid_labels, valid_preds)))
         del valid_labels, valid_data
         del train_labels, train_data
 
         merge_data, merge_labels = self.load_dataset('merge')
-        merge_preds = model.predict(merge_data, batch_size=1024)
-        merge_preds += model.predict([merge_data[1], merge_data[0], merge_data[2]], batch_size=1024)
-        merge_preds /= 2
+        merge_preds = model.predict(merge_data, batch_size=batch_size)
 
         np.save('cache/%s/merge.npy' % self.base_name, merge_preds)
 
         test_data, _ = self.load_dataset('test')
-        test_preds = model.predict(test_data, batch_size=1024)
-        test_preds += model.predict([test_data[1], test_data[0], test_data[2]], batch_size=1024)
-        test_preds /= 2
+        test_preds = model.predict(test_data, batch_size=batch_size, verbose=1)
 
         np.save('cache/%s/classifications.npy' % self.base_name, test_preds)
 
@@ -124,6 +128,50 @@ class KerasLSTMModel(KerasModel):
 
         preds = keras.layers.Dense(1, activation='sigmoid')(merged)
         model = keras.models.Model(inputs=[sequence_1_input, sequence_2_input, distance_input], outputs=preds)
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
+
+        return model
+
+
+class ReadReadLSTM(KerasModel):
+    base_name = "keras_readread"
+
+    def model(self, embedding_matrix, vec_len, distance_width):
+        num_lstm = np.random.randint(250, 400)
+        num_dense = np.random.randint(100, 150)
+        rate_drop_lstm = 0.15 + np.random.rand() * 0.25
+        rate_drop_dense = 0.15 + np.random.rand() * 0.25
+
+        embedding_layer = keras.layers.Embedding(
+            embedding_matrix.shape[0], embedding_matrix.shape[1],
+            weights=[embedding_matrix], input_length=vec_len*2, trainable=False)
+
+        lstm_layer1 = keras.layers.Bidirectional(
+            keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+        )
+
+        sequence_1_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        sequence_2_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        x1x2 = keras.layers.concatenate([sequence_1_input, sequence_2_input])
+        embed = embedding_layer(x1x2)
+        l1 = lstm_layer1(embed)
+
+        distance_input = keras.layers.Input(shape=[distance_width])
+        di = keras.layers.Dense(num_dense, activation='relu')(distance_input)
+        di = keras.layers.Dropout(num_lstm)(di)
+        di = keras.layers.BatchNormalization()(di)
+
+        di = keras.layers.Dense(num_dense, activation='relu')(di)
+        di = keras.layers.Dropout(num_lstm)(di)
+        di = keras.layers.BatchNormalization()(di)
+
+        merged = keras.layers.concatenate([l1, di])
+        merged = keras.layers.Dropout(rate_drop_dense)(merged)
+        merged = keras.layers.BatchNormalization()(merged)
+
+        merged = keras.layers.Dense(1, activation='sigmoid')(merged)
+
+        model = keras.models.Model([sequence_1_input, sequence_2_input, distance_input], merged)
         model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
 
         return model
