@@ -74,6 +74,11 @@ class WordMatDistance(luigi.Task):
         assert dataset in {'train', 'test', 'merge', 'valid'}
         return np.load('cache/word_mat_distances/%s.npy' % dataset)
 
+    def load_named(self, dataset):
+        assert self.complete()
+        assert dataset in {'train', 'test', 'merge', 'valid'}
+        return np.load('cache/word_mat_distances/%s.npy' % dataset)
+
 
 class SentenceVecs(luigi.Task):
     resources = {'cpu': 4}

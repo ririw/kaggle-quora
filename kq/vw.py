@@ -49,7 +49,7 @@ class VWData(luigi.Task):
             qvecs = question_vectors.QuestionVector().load_named(self.data_subset)
             dvecs = distances.AllDistances().load()[ix]
             evecs = shared_entites.SharedEntities().load_named(self.data_subset)
-            wmvecs = wordmat_distance.WordMatDistance().load(self.data_subset)
+            wmvecs = wordmat_distance.WordMatDistance().load_named(self.data_subset)
             labels = dataset.Dataset().load()[ix].is_duplicate.values
         else:
             #vecs = tfidf_matrix.TFIDFFeature.load_dataset('test')
@@ -57,7 +57,7 @@ class VWData(luigi.Task):
             qvecs = question_vectors.QuestionVector().load_named('test')
             dvecs = distances.AllDistances().load_named('test')
             evecs = shared_entites.SharedEntities().load_named('test')
-            wmvecs = wordmat_distance.WordMatDistance().load('test')
+            wmvecs = wordmat_distance.WordMatDistance().load_named('test')
             labels = np.zeros(qvecs.shape[0], dtype='uint8')
 
         qvec_offset = 1
@@ -78,10 +78,10 @@ class VWData(luigi.Task):
             evec[np.isnan(evec)] = -1
             wmvec[np.isnan(wmvec)] = -1
 
-            qvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(qvec, start=qvec_offset))
-            dvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(dvec, start=dvec_offset))
-            evec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(evec, start=evec_offset))
-            wmvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(wmvec, start=wmvec_offset))
+            qvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(qvec))
+            dvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(dvec))
+            evec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(evec))
+            wmvec_entries = ' '.join('%d:%.2f' % ix_v for ix_v in enumerate(wmvec))
             entries = " ".join(("%d:%.2f" % (ind + vecs_offset, data) for ind, data in zip(row.indices, row.data)))
             f.write("%d %f |Q %s |D %s |E %s |M %s |W %s\n" %
                     (label, core.weights[label], qvec_entries, dvec_entries, evec_entries, wmvec_entries, entries))

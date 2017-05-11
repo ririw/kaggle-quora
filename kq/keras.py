@@ -7,6 +7,7 @@ import pandas
 from plumbum import colors
 
 from kq import core, keras_kaggle_data, distances
+from kq import feature_collection
 
 
 class KerasModel(luigi.Task):
@@ -16,7 +17,7 @@ class KerasModel(luigi.Task):
 
     def requires(self):
         yield keras_kaggle_data.KaggleDataset()
-        yield distances.AllDistances()
+        yield feature_collection.FeatureCollection()
 
     def output(self):
         if self.force:
@@ -25,7 +26,7 @@ class KerasModel(luigi.Task):
 
     def load_dataset(self, name):
         [d1, d2], labels = keras_kaggle_data.KaggleDataset().load(name)
-        ds = distances.AllDistances().load_named(name)
+        ds = feature_collection.FeatureCollection().load_named(name)
         return [d1, d2, ds], labels
 
     def run(self):

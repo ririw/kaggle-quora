@@ -10,6 +10,8 @@ from tqdm import tqdm
 from plumbum import local, FG, colors
 
 from kq import dataset, question_vectors, distances, shared_entites, core, tfidf_matrix, wordmat_distance, question_freq
+from kq import feature_collection
+from kq import sentiments
 
 
 class SVMData(luigi.Task):
@@ -19,48 +21,28 @@ class SVMData(luigi.Task):
 
     def requires(self):
         yield dataset.Dataset()
-        yield question_vectors.QuestionVector()
-        yield distances.AllDistances()
-        yield shared_entites.SharedEntities()
         yield tfidf_matrix.TFIDFFeature()
-        yield wordmat_distance.WordMatDistance()
-        yield question_freq.QuestionFrequencyFeature()
+        yield feature_collection.FeatureCollection()
 
     def output(self):
         return luigi.LocalTarget('cache/svm_data/done_%s' % self.data_subset)
 
     def run(self):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
-        simple_vecs = [
-            question_vectors.QuestionVector().load_named(self.data_subset),
-            shared_entites.SharedEntities().load_named(self.data_subset),
-            wordmat_distance.WordMatDistance().load(self.data_subset),
-            question_freq.QuestionFrequencyFeature().load(self.data_subset),
-            distances.AllDistances().load_named(self.data_subset)
-        ]
-        complex_vecs = [
-            tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
-        ]
-
+        simple_vecs = feature_collection.FeatureCollection().load(self.data_subset).values
+        complex_vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
         labels = dataset.Dataset().load_named(self.data_subset).is_duplicate.values
 
-        offsets = np.cumsum([0] + [v.shape[1] for v in simple_vecs] + [v.shape[1] for v in complex_vecs])
-
         def write_row(i, f1, f2, f3):
-            simple_vec = [v[i] for v in simple_vecs]
-            complex_vec = [v[i] for v in complex_vecs]
+            simple_vec = simple_vecs[i]
+            complex_vec = complex_vecs[i]
             label = labels[i]
 
-            simple_entries = []
-            for vec, offset in zip(simple_vec, offsets):
-                v = np.nan_to_num(vec)
-                txtform = ' '.join('%d:%f' % ix_v for ix_v in enumerate(v, start=offset))
-                simple_entries.append(txtform)
-
-            complex_entries = []
-            for vec, offset in zip(complex_vec, offsets[len(simple_vec):]):
-                entries = " ".join(("%d:%.2f" % (ind + offset, data) for ind, data in zip(vec.indices, vec.data)))
-                complex_entries.append(entries)
+            simple_entries = ' '.join(
+                '%d:%f' % ix_v for ix_v in enumerate(simple_vec))
+            offset = simple_vec.shape[1]
+            complex_entries = ' '.join(
+                ("%d:%.2f" % (ind + offset, data) for ind, data in zip(complex_vec.indices, complex_vec.data)))
 
             f1.write(str(label) + ' ')
             f1.write(' '.join(simple_entries))

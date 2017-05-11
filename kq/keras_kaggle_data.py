@@ -24,7 +24,6 @@ class KaggleDataset(luigi.Task):
     def output(self):
         return luigi.LocalTarget('cache/kaggledata/done')
 
-
     def run(self):
         def text_to_wordlist(text, remove_stopwords=False, stem_words=False):
             # Clean the text, with the option to remove stopwords and to stem words.
