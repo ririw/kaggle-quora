@@ -1,3 +1,4 @@
+import gzip
 from collections import OrderedDict
 
 import luigi
@@ -21,6 +22,7 @@ import torch.nn.functional
 import torchsample.modules
 import torchsample.callbacks
 import torchsample.metrics
+import os
 
 class SimpleLogit(torch.nn.Module):
     def __init__(self, input_dimen):
@@ -156,5 +158,8 @@ class Stacks(luigi.Task):
         pred = pandas.Series(cls.predict_proba(X)[:, 1], index=index, name='is_duplicate').to_frame()
         print(colors.green | str(pred.head()))
 
-        with self.output().open('w') as f:
-            pred.to_csv(f, compression='gzip')
+        with gzip.open('cache/stacked_pred.csv.gz.tmp', 'wt') as f:
+            pred.to_csv(f)
+        os.rename('cache/stacked_pred.csv.gz.tmp', 'cache/stacked_pred.csv.gz')
+
+

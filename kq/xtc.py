@@ -37,8 +37,9 @@ class XTCBaseClassifier(luigi.Task):
             cls.feature_importances_,
             index=cols)
 
-        report_data = str(
-            importances.groupby([ix.split('.')[0] for ix in importances.index]).agg(['mean', 'max', 'min', 'sum']))
+        importance_frame = importances.groupby([ix.split('.')[0] for ix in importances.index])
+        importance_aggs = importance_frame.agg(['mean', 'max', 'min', 'sum'])
+        report_data = str(importance_aggs.sort_values('sum'))
         print(report_data)
 
         X, y, _ = self.load_data('valid')
@@ -74,7 +75,7 @@ class XTCComplexClassifier(XTCBaseClassifier):
     n_trees = 500
 
     def load_data(self, subset):
-        X1 = feature_collection.FeatureCollection().load(subset)
+        X1 = feature_collection.FeatureCollection().load_named(subset)
         X2 = count_matrix.CountFeature.load_dataset(subset)
         y = dataset.Dataset().load_named(subset).is_duplicate.values
 
@@ -85,7 +86,7 @@ class XTCComplexClassifier(XTCBaseClassifier):
 
 class XTCSimpleClassifier(XTCBaseClassifier):
     base_name = 'simple'
-    n_trees = 2000
+    n_trees = 500
 
     def load_data(self, subset):
         X = feature_collection.FeatureCollection().load_named(subset)

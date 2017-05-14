@@ -174,11 +174,11 @@ class KaggleDataset(luigi.Task):
         with self.output().open('w'):
             pass
 
-    def load(self, name, load_only=None):
+    def load_named(self, name, load_only=None):
         assert self.complete()
         assert name in {'train', 'test', 'valid', 'merge'}
-        f1 = np.load('cache/kaggledata/%s_1.npy' % name, mmap_mode='r')
-        f2 = np.load('cache/kaggledata/%s_2.npy' % name, mmap_mode='r')
+        f1 = np.load('cache/kaggledata/%s_1.npy' % name, mmap_mode='r').astype(np.int64)
+        f2 = np.load('cache/kaggledata/%s_2.npy' % name, mmap_mode='r').astype(np.int64)
         if name == 'test':
             l = np.zeros(f2.shape[0]) - 1
         else:
@@ -192,4 +192,4 @@ class KaggleDataset(luigi.Task):
 
     def load_embedding(self):
         assert self.complete()
-        return np.load('cache/kaggledata/embedding.npy', mmap_mode='r')
+        return np.load('cache/kaggledata/embedding.npy', mmap_mode='r').astype(np.float32)

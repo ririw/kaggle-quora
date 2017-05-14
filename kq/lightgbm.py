@@ -29,7 +29,7 @@ class SVMData(luigi.Task):
 
     def run(self):
         assert self.data_subset in {'train', 'test', 'merge', 'valid'}
-        simple_vecs = feature_collection.FeatureCollection().load(self.data_subset).values
+        simple_vecs = feature_collection.FeatureCollection().load_named(self.data_subset).values
         complex_vecs = tfidf_matrix.TFIDFFeature.load_dataset(self.data_subset)
         labels = dataset.Dataset().load_named(self.data_subset).is_duplicate.values
 
@@ -38,11 +38,10 @@ class SVMData(luigi.Task):
             complex_vec = complex_vecs[i]
             label = labels[i]
 
-            simple_entries = ' '.join(
-                '%d:%f' % ix_v for ix_v in enumerate(simple_vec))
-            offset = simple_vec.shape[1]
-            complex_entries = ' '.join(
-                ("%d:%.2f" % (ind + offset, data) for ind, data in zip(complex_vec.indices, complex_vec.data)))
+            simple_entries = ['%d:%f' % ix_v for ix_v in enumerate(simple_vec)]
+            offset = simple_vec.shape[0]
+            complex_entries = ["%d:%.2f" % (ind + offset, data)
+                                for ind, data in zip(complex_vec.indices, complex_vec.data)]
 
             f1.write(str(label) + ' ')
             f1.write(' '.join(simple_entries))

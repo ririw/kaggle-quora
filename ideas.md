@@ -12,10 +12,10 @@ Synthetic data
 Features
 --------
  * Decompositions of the TFIDF matrix/term matrix
-  * SVM
+  * DONE SVM
   * NMF
- * http://proceedings.mlr.press/v37/kusnerb15.pdf
- * https://openreview.net/pdf?id=SyK00v5xx
+ * DONE http://proceedings.mlr.press/v37/kusnerb15.pdf
+ * DONE https://openreview.net/pdf?id=SyK00v5xx (but not perfected)
  * https://datawhatnow.com/simhash-question-deduplicatoin/
 
 Algorithms
@@ -24,11 +24,11 @@ Algorithms
    FFM isn't really applicable here. In an FFM, there are namespaces that are convolved together,
    eg, users and movies, and we learn things from each one from the other, and they fit together.
    We don't have this for words.
- * XTC: expand to more features
+ * DONE XTC: expand to more features
   * This worked :)
  * doc2vec
  
 
 Analysis
 --------
- * XTC: find the feature importances
+ * DONE XTC: find the feature importances

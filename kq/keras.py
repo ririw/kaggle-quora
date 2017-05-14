@@ -25,8 +25,8 @@ class KerasModel(luigi.Task):
         return luigi.LocalTarget('cache/%s/classifications.npy' % self.base_name)
 
     def load_dataset(self, name):
-        [d1, d2], labels = keras_kaggle_data.KaggleDataset().load(name)
-        ds = feature_collection.FeatureCollection().load_named(name)
+        [d1, d2], labels = keras_kaggle_data.KaggleDataset().load_named(name)
+        ds = feature_collection.FeatureCollection().load_named(name).values
         return [d1, d2, ds], labels
 
     def run(self):
@@ -159,11 +159,11 @@ class ReadReadLSTM(KerasModel):
 
         distance_input = keras.layers.Input(shape=[distance_width])
         di = keras.layers.Dense(num_dense, activation='relu')(distance_input)
-        di = keras.layers.Dropout(num_lstm)(di)
+        di = keras.layers.Dropout(rate_drop_dense)(di)
         di = keras.layers.BatchNormalization()(di)
 
         di = keras.layers.Dense(num_dense, activation='relu')(di)
-        di = keras.layers.Dropout(num_lstm)(di)
+        di = keras.layers.Dropout(rate_drop_dense)(di)
         di = keras.layers.BatchNormalization()(di)
 
         merged = keras.layers.concatenate([l1, di])
