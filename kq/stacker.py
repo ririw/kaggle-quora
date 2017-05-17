@@ -1,4 +1,5 @@
 import gzip
+import logging
 from collections import OrderedDict
 
 import luigi
@@ -96,13 +97,7 @@ class Stacks(luigi.Task):
             shapes[r.task_id] = x.shape[1] if len(x.shape) == 2 else 1
 
         data = pandas.DataFrame(data)[list(data.keys())]
-        alldist = AllDistances().load()[1]
-        dist_pd = pandas.DataFrame(alldist, columns=['alldist_%d' % i for i in range(alldist.shape[1])])
 
-        data = pandas.concat([data, dist_pd], 1)
-        data.to_csv('cache/R.csv')
-
-        #data.drop(['alldist_1', 'alldist_4', 'alldist_5', 'alldist_6'], 1)
         data['is_duplicate'] = Dataset().load()[1].is_duplicate
         X = data.drop('is_duplicate', 1).values
         print(X.max(), X.min(), np.isnan(X).sum())
@@ -148,9 +143,6 @@ class Stacks(luigi.Task):
                 "Shape: {} did not match expected {}" % (x.shape, shapes[r.task_id])
             #print(r.__class__.__name__, '\t', x.shape, type(x))
         data = pandas.DataFrame.from_dict(data)
-        alldist = AllDistances().load_named('test')
-        dist_pd = pandas.DataFrame(alldist, columns=['alldist_%d' % i for i in range(alldist.shape[1])])
-        data = pandas.concat([data, dist_pd], 1)#.drop(['alldist_1', 'alldist_4', 'alldist_5', 'alldist_6'], 1)
 
         X = data.values
         X = transform.transform(X)

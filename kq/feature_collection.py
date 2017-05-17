@@ -1,7 +1,7 @@
 import luigi
 import pandas
 
-from kq import distances
+from kq import distances, lda_feature
 from kq import question_freq
 from kq import question_vectors
 from kq import sentiments
@@ -17,6 +17,8 @@ class FeatureCollection(luigi.Task):
         yield wordmat_distance.WordMatDistance()
         yield sentiments.SentimentTasks()
         yield question_freq.QuestionFrequencyFeature()
+        yield lda_feature.LDADecompositionFeatureVectors()
+        yield lda_feature.NMFDecompositionFeatureVectors()
 
     def complete(self):
         for r in self.requires():
@@ -28,6 +30,8 @@ class FeatureCollection(luigi.Task):
         cols = {}
         for r in self.requires():
             v = r.load_named(name)
+            if isinstance(v, pandas.DataFrame):
+                v = v.values
             if len(v.shape) == 1:
                 cols[r.__class__.__name__] = v
             else:

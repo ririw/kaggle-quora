@@ -17,7 +17,7 @@ from . import to_torchvar
 
 
 class TorchTask(luigi.Task):
-    batch_size = 32
+    batch_size = 128
     def requires(self):
         yield KaggleDataset()
         yield FeatureCollection()
