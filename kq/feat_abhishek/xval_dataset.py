@@ -14,7 +14,7 @@ class BaseDataset(FoldIndependent):
         raise Exception('Cannot load testing target feature.')
 
     def _load(self):
-        v = pandas.Series(np.load('cache/abhishek/dataset/train_data.npy'), name='is_duplicate')
+        v = pandas.Series(np.load('cache/abhishek/dataset/train_data.npy'), name='is_duplicate').to_frame()
         f = np.load('cache/abhishek/dataset/folds.npy')
 
         return v, f

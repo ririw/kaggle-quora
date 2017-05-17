@@ -15,7 +15,7 @@ class XTCClassifier(FoldDependent):
     def _load(self, name):
         assert name in {'test', 'valid'}
         fn = 'cache/abhishek/xtc/{:d}/{:s}.npy'.format(self.fold, name)
-        return pandas.DataFrame({'XTCClassifier': np.load(fn)})
+        return pandas.Series(np.load(fn), name='XTC').to_frame()
 
     def output(self):
         return luigi.LocalTarget('cache/abhishek/xtc/{:d}/done'.format(self.fold))
@@ -28,7 +28,7 @@ class XTCClassifier(FoldDependent):
         self.output().makedirs()
 
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold)
-        y = xval_dataset.BaseDataset().load('train', self.fold)
+        y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
         cls = ensemble.ExtraTreesClassifier(
             n_estimators=50,
             n_jobs=-1,
@@ -36,7 +36,7 @@ class XTCClassifier(FoldDependent):
         cls.fit(X, y)
 
         validX = abhishek_feats.AbhishekFeatures().load('valid', self.fold)
-        y = xval_dataset.BaseDataset().load('valid', self.fold)
+        y = xval_dataset.BaseDataset().load('valid', self.fold).squeeze()
         y_pred = cls.predict_proba(validX)[:, 1]
         print(colors.green | colors.bold | str(core.score_data(y, y_pred)))
 
@@ -47,6 +47,6 @@ class XTCClassifier(FoldDependent):
         np.save('cache/abhishek/xtc/{:d}/test.npy'.format(self.fold), pred)
 
         with self.output().open('w') as f:
-            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold).columns
-            v = pandas.Series(cls.feature_importances_, index=cols)
-            pandas.to_csv(v)
+            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold, as_np=False).columns
+            v = pandas.Series(cls.feature_importances_, index=cols).sort_values()
+            v.to_csv(f)

@@ -23,7 +23,8 @@ class FoldIndependent(luigi.Task):
             else:
                 res = features[folds != 0]
 
-        nose.tools.assert_is_instance(res, pandas.core.generic.NDFrame)
+        nose.tools.assert_is_instance(res, pandas.DataFrame)
+
         if as_np:
             return res.values
         else:
@@ -42,8 +43,12 @@ class FoldDependent(luigi.Task):
     def _load(self, name):
         raise NotImplementedError
 
-    def load(self, name):
+    def load(self, name, as_np=True):
         res = self._load(name)
         nose.tools.assert_is_instance(res, pandas.DataFrame)
+        if as_np:
+            return res.values
+        else:
+            return res
 
 fold_max = 9
