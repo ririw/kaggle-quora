@@ -1,4 +1,5 @@
 import pandas
+import nose.tools
 import numpy as np
 import sklearn
 
@@ -43,6 +44,7 @@ def score_data(y_true, y_pred):
         else:
             assert y_pred.shape[1] <= 2, 'Unexpected shape: ' + str(y_pred.shape)
 
+    nose.tools.assert_equal(y_true.shape, y_pred.shape)
     weights = weights[y_true]
     loss = sklearn.metrics.log_loss(y_true, y_pred, sample_weight=weights)
 

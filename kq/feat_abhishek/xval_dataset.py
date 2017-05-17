@@ -14,7 +14,10 @@ class BaseDataset(FoldIndependent):
         raise Exception('Cannot load testing target feature.')
 
     def _load(self):
-        return np.load('cache/abhishek/dataset/train_data.npy'), np.load('cache/abhishek/dataset/folds.npy')
+        v = pandas.Series(np.load('cache/abhishek/dataset/train_data.npy'), name='is_duplicate')
+        f = np.load('cache/abhishek/dataset/folds.npy')
+
+        return v, f
 
     def load_dataset_folds(self):
         return np.load('cache/abhishek/dataset/folds.npy')
@@ -32,7 +35,7 @@ class BaseDataset(FoldIndependent):
         q1_fold = kaggle_train_data.qid1.apply(lambda qid: mmh3.hash(str(qid)) % 3)
         q2_fold = kaggle_train_data.qid2.apply(lambda qid: mmh3.hash(str(qid)) % 3 * 3)
 
-        fold_n = q1_fold + q2_fold
+        fold_n = (q1_fold + q2_fold).values
         v = kaggle_train_data.is_duplicate.values
         tv = np.ones(kaggle_test_data.shape[0]) * -1
 

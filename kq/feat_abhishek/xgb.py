@@ -2,23 +2,23 @@ import luigi
 import numpy as np
 import pandas
 from plumbum import colors
-from sklearn import ensemble
+import xgboost.sklearn
 
 from kq import core
 from kq.feat_abhishek.hyper_helper import TuneableIntHyperparam
 from . import FoldDependent, abhishek_feats, xval_dataset
 
-__all__ = ['XTCClassifier']
+__all__ = ['XGBClassifier']
 
 
-class XTCClassifier(FoldDependent):
+class XGBClassifier(FoldDependent):
     def _load(self, name):
         assert name in {'test', 'valid'}
-        fn = 'cache/abhishek/xtc/{:d}/{:s}.npy'.format(self.fold, name)
-        return pandas.DataFrame({'XTCClassifier': np.load(fn)})
+        fn = 'cache/abhishek/xgb/{:d}/{:s}.npy'.format(self.fold, name)
+        return pandas.DataFrame({'XGBClassifier': np.load(fn)})
 
     def output(self):
-        return luigi.LocalTarget('cache/abhishek/xtc/{:d}/done'.format(self.fold))
+        return luigi.LocalTarget('cache/abhishek/xgb/{:d}/done'.format(self.fold))
 
     def requires(self):
         yield abhishek_feats.AbhishekFeatures()
@@ -29,10 +29,7 @@ class XTCClassifier(FoldDependent):
 
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold)
         y = xval_dataset.BaseDataset().load('train', self.fold)
-        cls = ensemble.ExtraTreesClassifier(
-            n_estimators=50,
-            n_jobs=-1,
-            class_weight=core.dictweights)
+        cls = xgboost.sklearn.XGBClassifier(max_depth=7, nthread=4)
         cls.fit(X, y)
 
         validX = abhishek_feats.AbhishekFeatures().load('valid', self.fold)
@@ -40,13 +37,11 @@ class XTCClassifier(FoldDependent):
         y_pred = cls.predict_proba(validX)[:, 1]
         print(colors.green | colors.bold | str(core.score_data(y, y_pred)))
 
-        np.save('cache/abhishek/xtc/{:d}/valid.npy'.format(self.fold), y_pred)
+        np.save('cache/abhishek/xgb/{:d}/valid.npy'.format(self.fold), y_pred)
 
         trainX = abhishek_feats.AbhishekFeatures().load('test', None)
         pred = cls.predict(trainX)
-        np.save('cache/abhishek/xtc/{:d}/test.npy'.format(self.fold), pred)
+        np.save('cache/abhishek/xgb/{:d}/test.npy'.format(self.fold), pred)
 
-        with self.output().open('w') as f:
-            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold).columns
-            v = pandas.Series(cls.feature_importances_, index=cols)
-            pandas.to_csv(v)
+        with self.output().open('w'):
+            pass
