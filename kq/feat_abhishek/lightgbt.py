@@ -29,9 +29,10 @@ class LightGBMClassifier(FoldDependent):
 
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold)
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
-        cls = lgbsklearn.LGBMClassifier(num_leaves=512, n_estimators=500, is_unbalance=True)
+        cls = lgbsklearn.LGBMClassifier(num_leaves=1024, n_estimators=1000, is_unbalance=True)
         X_tr, X_va, y_tr, y_va = model_selection.train_test_split(X, y, test_size=0.05)
-        cls.fit(X_tr, y_tr, eval_set=(X_va, y_va))
+        cls.fit(X_tr, y_tr, sample_weight=core.weight_from(y_tr), eval_set=(X_va, y_va),
+                eval_sample_weight=core.weight_from(y_va), early_stopping_rounds=10)
 
         validX = abhishek_feats.AbhishekFeatures().load('valid', self.fold)
         y = xval_dataset.BaseDataset().load('valid', self.fold).squeeze()

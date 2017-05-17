@@ -1,7 +1,7 @@
 import luigi
 import pandas
 from plumbum import colors
-from sklearn import linear_model
+from sklearn import linear_model, pipeline, preprocessing
 import numpy as np
 
 from kq import core
@@ -26,12 +26,19 @@ class LogitClassifier(FoldDependent):
     def run(self):
         self.output().makedirs()
 
+        preproc = pipeline.Pipeline([
+            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+        ])
+
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold, as_np=False)
+        X = preproc.fit_transform(X)
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
         cls = linear_model.LogisticRegression(class_weight=core.dictweights)
         cls.fit(X, y)
 
+        print('Validating')
         validX = abhishek_feats.AbhishekFeatures().load('valid', self.fold)
+        validX = preproc.transform(validX)
         y = xval_dataset.BaseDataset().load('valid', self.fold).squeeze()
         y_pred = cls.predict_proba(validX)[:, 1]
 
@@ -40,6 +47,7 @@ class LogitClassifier(FoldDependent):
         np.save('cache/abhishek/logit/{:d}/valid.npy'.format(self.fold), y_pred)
 
         trainX = abhishek_feats.AbhishekFeatures().load('test', None)
+        trainX = preproc.transform(trainX)
         pred = cls.predict(trainX)
         np.save('cache/abhishek/logit/{:d}/test.npy'.format(self.fold), pred)
 
