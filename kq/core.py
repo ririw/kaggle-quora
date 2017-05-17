@@ -30,6 +30,7 @@ class MergableFeatures:
 
 
 weights = np.array([1.309028344, 0.472001959])
+dictweights = dict(enumerate(weights))
 
 def score_data(y_true, y_pred):
     global weights
@@ -42,7 +43,6 @@ def score_data(y_true, y_pred):
         else:
             assert y_pred.shape[1] <= 2, 'Unexpected shape: ' + str(y_pred.shape)
 
-    print(y_pred)
     weights = weights[y_true]
     loss = sklearn.metrics.log_loss(y_true, y_pred, sample_weight=weights)
 
