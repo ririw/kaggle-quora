@@ -62,11 +62,15 @@ class Stacker(luigi.Task):
 
         print(colors.green | colors.bold | (Stacker.__name__ + '::' + str(score)))
 
-        test_X = poly.transform(self.fold_x(0, 'test'))
-        test_pred = cls.predict_proba(test_X)
+        preds = []
+        for fold in range(9):
+            test_X = poly.transform(self.fold_x(fold, 'test'))
+            test_pred = cls.predict_proba(test_X)[:, 1]
+            preds.append(test_pred)
+        predmat = np.vstack(preds).mean(0)
 
         index = pandas.Index(np.arange(test_X.shape[0]), name='test_id')
-        pred = pandas.Series(test_pred[:, 1], index=index, name='is_duplicate').to_frame()
+        pred = pandas.Series(predmat, index=index, name='is_duplicate').to_frame()
         with gzip.open('cache/abhishek/stacked_pred.csv.gz.tmp', 'wt') as f:
             pred.to_csv(f)
         os.rename('cache/abhishek/stacked_pred.csv.gz.tmp', 'cache/abhishek/stacked_pred.csv.gz')

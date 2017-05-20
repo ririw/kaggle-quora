@@ -12,6 +12,8 @@ __all__ = ['XGBoostClassifier']
 
 
 class XGBoostClassifier(FoldDependent):
+    resources = {'cpu': 7}
+
     def _load(self, name):
         assert name in {'test', 'valid'}
         fn = 'cache/abhishek/xgb/{:d}/{:s}.npy'.format(self.fold, name)
@@ -31,21 +33,24 @@ class XGBoostClassifier(FoldDependent):
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
         cls = xgbsk.XGBClassifier(max_depth=7)
         X_tr, X_va, y_tr, y_va = model_selection.train_test_split(X, y, test_size=0.05)
-        cls.fit(X_tr, y_tr, sample_weight=core.weight_from(y_tr), eval_set=[(X_va, y_va)],
-                early_stopping_rounds=10)
+        cls.fit(X_tr, y_tr, sample_weight=core.weight_from(y_tr), eval_set=[(X_va, y_va)], early_stopping_rounds=10)
 
         validX = abhishek_feats.AbhishekFeatures().load('valid', self.fold)
         y = xval_dataset.BaseDataset().load('valid', self.fold).squeeze()
         y_pred = cls.predict_proba(validX)[:, 1]
-        print(colors.green | colors.bold | str(core.score_data(y, y_pred)))
+        scorestr = "{:s} = {:f}".format(repr(self), core.score_data(y, y_pred))
+        print(colors.green | colors.bold | scorestr)
 
         np.save('cache/abhishek/xgb/{:d}/valid.npy'.format(self.fold), y_pred)
 
         trainX = abhishek_feats.AbhishekFeatures().load('test', None)
-        pred = cls.predict(trainX)
+        pred = cls.predict_proba(trainX)[:, 1]
         np.save('cache/abhishek/xgb/{:d}/test.npy'.format(self.fold), pred)
 
         with self.output().open('w') as f:
             cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold, as_np=False).columns
             v = pandas.Series(cls.feature_importances_, index=cols).sort_values()
             v.to_csv(f)
+            f.write("\n\n")
+            f.write(scorestr)
+            f.write("\n")

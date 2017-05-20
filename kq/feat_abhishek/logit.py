@@ -11,6 +11,8 @@ __all__ = ['LogitClassifier']
 
 
 class LogitClassifier(FoldDependent):
+    resources = {'cpu': 1}
+
     def _load(self, name):
         assert name in {'test', 'valid'}
         fn = 'cache/abhishek/logit/{:d}/{:s}.npy'.format(self.fold, name)
@@ -28,6 +30,7 @@ class LogitClassifier(FoldDependent):
 
         preproc = pipeline.Pipeline([
             ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('poly', preprocessing.PolynomialFeatures(2))
         ])
 
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold, as_np=False)
@@ -42,16 +45,16 @@ class LogitClassifier(FoldDependent):
         y = xval_dataset.BaseDataset().load('valid', self.fold).squeeze()
         y_pred = cls.predict_proba(validX)[:, 1]
 
-        print(colors.green | colors.bold | str(core.score_data(y, y_pred)))
+        scorestr = "{:s} = {:f}".format(repr(self), core.score_data(y, y_pred))
+        print(colors.green | colors.bold | scorestr)
 
         np.save('cache/abhishek/logit/{:d}/valid.npy'.format(self.fold), y_pred)
 
         trainX = abhishek_feats.AbhishekFeatures().load('test', None)
         trainX = preproc.transform(trainX)
-        pred = cls.predict(trainX)
+        pred = cls.predict_proba(trainX)[:, 1]
         np.save('cache/abhishek/logit/{:d}/test.npy'.format(self.fold), pred)
 
         with self.output().open('w') as f:
-            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold, as_np=False).columns
-            v = pandas.Series(cls.coef_[0], index=cols).sort_values()
-            v.to_csv(f)
+            f.write(scorestr)
+            f.write("\n")

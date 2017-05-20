@@ -33,8 +33,10 @@ class MergableFeatures:
 weights = np.array([1.309028344, 0.472001959])
 dictweights = dict(enumerate(weights))
 
+
 def weight_from(y):
     return weights[y]
+
 
 def score_data(y_true, y_pred):
     global weights
