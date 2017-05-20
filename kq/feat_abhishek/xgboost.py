@@ -6,6 +6,7 @@ from xgboost import sklearn as xgbsk
 from sklearn import model_selection
 
 from kq import core, utils
+from kq.feat_abhishek import hyper_helper
 from . import FoldDependent, abhishek_feats, xval_dataset
 
 __all__ = ['XGBoostClassifier']
@@ -13,6 +14,8 @@ __all__ = ['XGBoostClassifier']
 
 class XGBoostClassifier(FoldDependent):
     resources = {'cpu': 7}
+
+    max_depth = hyper_helper.TuneableHyperparam(name='XGBoostClassifier_max_depth')
 
     def _load(self, name):
         assert name in {'test', 'valid'}
@@ -31,7 +34,7 @@ class XGBoostClassifier(FoldDependent):
 
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold)
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
-        cls = xgbsk.XGBClassifier(max_depth=7)
+        cls = xgbsk.XGBClassifier(max_depth=self.max_depth.get())
         X_tr, X_va, y_tr, y_va = model_selection.train_test_split(X, y, test_size=0.05)
         cls.fit(X_tr, y_tr, sample_weight=core.weight_from(y_tr), eval_set=[(X_va, y_va)], early_stopping_rounds=10)
 

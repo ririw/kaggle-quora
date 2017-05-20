@@ -6,6 +6,7 @@ from lightgbm import sklearn as lgbsklearn
 from sklearn import model_selection
 
 from kq import core
+from kq.feat_abhishek import hyper_helper
 from . import FoldDependent, abhishek_feats, xval_dataset
 
 __all__ = ['LightGBMClassifier']
@@ -13,6 +14,9 @@ __all__ = ['LightGBMClassifier']
 
 class LightGBMClassifier(FoldDependent):
     resources = {'cpu': 7}
+
+    n_estimators = hyper_helper.TuneableHyperparam(name='LightGBMClassifier_n_estimators')
+    num_leaves = hyper_helper.TuneableHyperparam(name='LightGBMClassifier_num_leaves')
 
     def _load(self, name):
         assert name in {'test', 'valid'}
@@ -31,7 +35,9 @@ class LightGBMClassifier(FoldDependent):
 
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold)
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
-        cls = lgbsklearn.LGBMClassifier(num_leaves=1024, n_estimators=1000, is_unbalance=True)
+        cls = lgbsklearn.LGBMClassifier(num_leaves=self.num_leaves.get(),
+                                        n_estimators=self.n_estimators.get(),
+                                        is_unbalance=True)
         X_tr, X_va, y_tr, y_va = model_selection.train_test_split(X, y, test_size=0.05)
         cls.fit(X_tr, y_tr,
                 sample_weight=core.weight_from(y_tr),

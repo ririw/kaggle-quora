@@ -1,15 +1,14 @@
-import luigi
 
 
-class TuneableHyperparam(luigi.Parameter):
-    pass
+class TuneableHyperparam:
+    opt_args = {}
+    def __init__(self, name):
+        self.name = name
 
+    def get(self):
+        return self.opt_args[self.name]
 
-class TuneableFloatHyperparam(luigi.FloatParameter):
-    pass
-
-
-class TuneableIntHyperparam(luigi.FloatParameter):
-    pass
-
+    @classmethod
+    def set(cls, args):
+        cls.opt_args = args
 

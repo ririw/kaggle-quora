@@ -41,7 +41,7 @@ class Stacker(luigi.Task):
 
     def run(self):
         self.output().makedirs()
-        poly = preprocessing.PolynomialFeatures(3)
+        poly = preprocessing.PolynomialFeatures(2)
         train_Xs = []
         train_ys = []
         for fold in range(1, 9):

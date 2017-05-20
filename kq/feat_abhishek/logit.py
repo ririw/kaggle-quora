@@ -5,6 +5,7 @@ from sklearn import linear_model, pipeline, preprocessing
 import numpy as np
 
 from kq import core
+from kq.feat_abhishek import hyper_helper
 from . import FoldDependent, abhishek_feats, xval_dataset
 
 __all__ = ['LogitClassifier']
@@ -12,6 +13,7 @@ __all__ = ['LogitClassifier']
 
 class LogitClassifier(FoldDependent):
     resources = {'cpu': 1}
+    C = hyper_helper.TuneableHyperparam("LogitClassifier_C")
 
     def _load(self, name):
         assert name in {'test', 'valid'}
@@ -36,7 +38,9 @@ class LogitClassifier(FoldDependent):
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold, as_np=False)
         X = preproc.fit_transform(X)
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
-        cls = linear_model.LogisticRegression(class_weight=core.dictweights)
+        cls = linear_model.LogisticRegression(
+            C=self.C.get(),
+            class_weight=core.dictweights)
         cls.fit(X, y)
 
         print('Validating')
@@ -45,7 +49,8 @@ class LogitClassifier(FoldDependent):
         y = xval_dataset.BaseDataset().load('valid', self.fold).squeeze()
         y_pred = cls.predict_proba(validX)[:, 1]
 
-        scorestr = "{:s} = {:f}".format(repr(self), core.score_data(y, y_pred))
+        score = core.score_data(y, y_pred)
+        scorestr = "{:s} = {:f}".format(repr(self), score)
         print(colors.green | colors.bold | scorestr)
 
         np.save('cache/abhishek/logit/{:d}/valid.npy'.format(self.fold), y_pred)
@@ -58,3 +63,5 @@ class LogitClassifier(FoldDependent):
         with self.output().open('w') as f:
             f.write(scorestr)
             f.write("\n")
+
+        return score

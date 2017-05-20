@@ -5,7 +5,6 @@ from plumbum import colors
 from sklearn import ensemble
 
 from kq import core
-from kq.feat_abhishek.hyper_helper import TuneableIntHyperparam
 from . import FoldDependent, abhishek_feats, xval_dataset
 
 __all__ = ['XTCClassifier']
@@ -33,7 +32,6 @@ class XTCClassifier(FoldDependent):
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
         cls = ensemble.ExtraTreesClassifier(
             n_estimators=500,
-            min_samples_leaf=10,
             n_jobs=-1,
             class_weight=core.dictweights)
         cls.fit(X, y)
@@ -41,7 +39,8 @@ class XTCClassifier(FoldDependent):
         validX = abhishek_feats.AbhishekFeatures().load('valid', self.fold)
         y = xval_dataset.BaseDataset().load('valid', self.fold).squeeze()
         y_pred = cls.predict_proba(validX)[:, 1]
-        scorestr = "{:s} = {:f}".format(repr(self), core.score_data(y, y_pred))
+        score = core.score_data(y, y_pred)
+        scorestr = "{:s} = {:f}".format(repr(self), score)
         print(colors.green | colors.bold | scorestr)
 
         np.save('cache/abhishek/xtc/{:d}/valid.npy'.format(self.fold), y_pred)
@@ -58,3 +57,5 @@ class XTCClassifier(FoldDependent):
             f.write("\n")
             f.write(scorestr)
             f.write("\n")
+
+        return score
