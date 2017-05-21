@@ -11,11 +11,11 @@ from kq.refold import rf_dataset, rf_word_count_features, BaseTargetBuilder
 __all__ = ['WordCountLogit']
 
 class WordCountLogit(FoldDependent):
-    resources = {'cpu': 1}
+    resources = {'cpu': 2, 'mem': 4}
     ngram_max = hyper_helper.TuneableHyperparam(
         name='WordCountLogit_ngram_mac',
-        prior=hyperopt.hp.randint('WordCountLogit_ngram_mac', 3),
-        default=2,
+        prior=hyperopt.hp.randint('WordCountLogit_ngram_mac', 2),
+        default=1,
         transform=lambda v: v+1
     )
     ngram_min_df = hyper_helper.TuneableHyperparam(
@@ -65,6 +65,7 @@ class WordCountLogit(FoldDependent):
         y_pred = cls.predict_proba(X_val)[:, 1]
         np.savez_compressed(self.make_path('valid.npz'), data=y_pred)
         score = core.score_data(y_val, y_pred)
+        print('Score: {:s}: {:f}'.format(repr(self), score))
 
         del X, y, X_val, y_val
         X_test = wcm.load('test', None, as_np=False)

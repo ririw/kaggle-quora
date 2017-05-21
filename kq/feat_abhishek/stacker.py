@@ -10,7 +10,7 @@ from sklearn import linear_model, preprocessing
 import nose.tools
 
 from kq import core
-from kq.feat_abhishek import xval_dataset, xtc, logit, lightgbt, xgboost, HyperTuneable
+from kq.feat_abhishek import xval_dataset, xtc, logit, lightgbt, xgboost, HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
 
 
@@ -20,7 +20,7 @@ class Stacker(luigi.Task, HyperTuneable):
     def requires(self):
         yield xval_dataset.BaseDataset()
         xs = []
-        for fold in range(9):
+        for fold in range(fold_max):
             for cls in self.classifiers(fold):
                 xs.append(cls)
 
@@ -71,7 +71,7 @@ class Stacker(luigi.Task, HyperTuneable):
         print(colors.green | colors.bold | (Stacker.__name__ + '::' + str(score)))
 
         preds = []
-        for fold in range(9):
+        for fold in range(fold_max):
             test_X = poly.transform(self.fold_x(fold, 'test'))
             test_pred = cls.predict_proba(test_X)[:, 1]
             preds.append(test_pred)

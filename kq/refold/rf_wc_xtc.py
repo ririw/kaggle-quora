@@ -30,9 +30,9 @@ class WordCountXTC(FoldDependent):
 
     min_leaf_samples = hyper_helper.TuneableHyperparam(
         name='WordCountXTC_min_leaf_samples',
-        prior=hyperopt.hp.randint('WordCountXTC_min_leaf_samples', 100),
-        default=20,
-        transform=lambda v: v+1
+        prior=hyperopt.hp.randint('WordCountXTC_min_leaf_samples', 20),
+        default=2,
+        transform=lambda v: (v+1)*5
     )
 
     def make_path(self, fname):
@@ -66,7 +66,7 @@ class WordCountXTC(FoldDependent):
 
         cls = sklearn.ensemble.ExtraTreesClassifier(
             n_estimators=500,
-            verbose=0,
+            verbose=10,
             n_jobs=-1,
             min_samples_leaf=self.min_leaf_samples.get())
         cls.fit(X, y)
@@ -74,10 +74,10 @@ class WordCountXTC(FoldDependent):
         X_val = wcm.load('valid', self.fold, as_np=False)
         y_val = rf_dataset.Dataset().load('valid', self.fold, as_np=False).is_duplicate
 
-        print(X_val.shape)
         y_pred = cls.predict_proba(X_val)[:, 1]
         np.savez_compressed(self.make_path('valid.npz'), data=y_pred)
         score = core.score_data(y_val, y_pred)
+        print('Score: {:s}: {:f}'.format(repr(self), score))
 
         del X, y, X_val, y_val
         X_test = wcm.load('test', None, as_np=False)

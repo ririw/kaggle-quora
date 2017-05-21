@@ -47,7 +47,7 @@ class HyperoptRunner(cli.Application):
 
         print(space)
 
-        eval_count = 0
+        eval_count = 1
 
         def objective(args):
             nonlocal eval_count
@@ -79,6 +79,8 @@ class HyperoptRunner(cli.Application):
             if np.isnan(res):
                 logging.warning('Result was NaN, using loss of 10 instead')
                 res = 10
+
+            eval_count += 1
             return res
 
         best = hyperopt.fmin(objective, space, hyperopt.tpe.suggest, max_evals=self.max_evals)

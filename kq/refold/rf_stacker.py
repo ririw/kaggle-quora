@@ -10,9 +10,9 @@ from sklearn import linear_model, preprocessing
 import nose.tools
 
 from kq import core
-from kq.feat_abhishek import HyperTuneable
+from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
-from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_linear
+from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_sklearn
 
 
 class Stacker(luigi.Task, HyperTuneable):
@@ -20,9 +20,9 @@ class Stacker(luigi.Task, HyperTuneable):
         "Stacker_npoly", hyperopt.hp.randint('Stacker_npoly', 3), 2, transform=lambda x: x+1)
 
     def requires(self):
-        yield rf_dataset.BaseDataset()
+        yield rf_dataset.Dataset()
         xs = []
-        for fold in range(9):
+        for fold in range(fold_max):
             for cls in self.classifiers(fold):
                 xs.append(cls)
 
@@ -31,9 +31,12 @@ class Stacker(luigi.Task, HyperTuneable):
 
     def classifiers(self, fold):
         return [
-            rf_wc_logit.WordCountLogit(),
-            rf_wc_xtc.WordCountXTC(),
-            rf_ab_linear.ABLinear(),
+            rf_wc_logit.WordCountLogit(fold=fold),
+            rf_wc_xtc.WordCountXTC(fold=fold),
+            rf_ab_sklearn.ABLinear(fold=fold),
+            rf_ab_sklearn.AB_XTC(fold=fold),
+            rf_ab_sklearn.AB_LGB(fold=fold),
+            rf_ab_sklearn.AB_XGB(fold=fold),
         ]
 
     def make_path(self, fname):
@@ -79,7 +82,7 @@ class Stacker(luigi.Task, HyperTuneable):
         print(colors.green | colors.bold | (Stacker.__name__ + '::' + str(score)))
 
         preds = []
-        for fold in range(9):
+        for fold in range(fold_max):
             test_X = poly.transform(self.fold_x(fold, 'test'))
             test_pred = cls.predict_proba(test_X)[:, 1]
             preds.append(test_pred)
