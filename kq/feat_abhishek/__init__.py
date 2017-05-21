@@ -16,14 +16,17 @@ class FoldIndependent(luigi.Task):
             res = self._load_test()
         else:
             features, folds = self._load()
+            #print(type(folds))
+            #print(type(features))
             nose.tools.assert_is_instance(folds, np.ndarray, 'Error while loading: ' + repr(self))
+            if fold is None:
+                return features
             folds = (folds + fold) % fold_max
             if name == 'valid':
-                res = features[folds == 0]
+                fold_ix = folds == 0
             else:
-                res = features[folds != 0]
-
-        nose.tools.assert_is_instance(res, pandas.DataFrame)
+                fold_ix = folds != 0
+            res = features[fold_ix]
 
         if as_np:
             return res.values
@@ -31,9 +34,11 @@ class FoldIndependent(luigi.Task):
             return res
 
     def _load(self):
+        # Return features, folds
         raise NotImplementedError
 
     def _load_test(self):
+        # return features
         raise NotImplementedError
 
 
@@ -50,5 +55,10 @@ class FoldDependent(luigi.Task):
             return res.values
         else:
             return res
+
+class HyperTuneable:
+    def score(self):
+        raise NotImplementedError
+
 
 fold_max = 9

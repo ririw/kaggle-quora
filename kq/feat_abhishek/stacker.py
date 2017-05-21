@@ -1,5 +1,6 @@
 import gzip
 
+import hyperopt
 import numpy as np
 import luigi
 import pandas
@@ -9,10 +10,13 @@ from sklearn import linear_model, preprocessing
 import nose.tools
 
 from kq import core
-from kq.feat_abhishek import xval_dataset, xtc, logit, lightgbt, xgboost
+from kq.feat_abhishek import xval_dataset, xtc, logit, lightgbt, xgboost, HyperTuneable
+from kq.feat_abhishek.hyper_helper import TuneableHyperparam
 
 
-class Stacker(luigi.Task):
+class Stacker(luigi.Task, HyperTuneable):
+    npoly = TuneableHyperparam("Stacker_npoly", hyperopt.hp.randint('Stacker_npoly', 3), 2, transform=lambda x: x+1)
+
     def requires(self):
         yield xval_dataset.BaseDataset()
         xs = []
@@ -32,16 +36,16 @@ class Stacker(luigi.Task):
         ]
 
     def output(self):
-        return luigi.LocalTarget('cache/abhishek/stacked_pred.csv.gz')
+        return luigi.LocalTarget('cache/abhishek/stacker/{:d}/stacked_pred.csv.gz'.format(self.npoly.get()))
 
     def fold_x(self, fold, dataset):
         xs = [c.load(dataset) for c in self.classifiers(fold)]
 
         return np.concatenate(xs, 1)
 
-    def run(self):
+    def score(self):
         self.output().makedirs()
-        poly = preprocessing.PolynomialFeatures(2)
+        poly = preprocessing.PolynomialFeatures(self.npoly.get())
         train_Xs = []
         train_ys = []
         for fold in range(1, 9):
@@ -59,6 +63,10 @@ class Stacker(luigi.Task):
         test_y = xval_dataset.BaseDataset().load('valid', 0).squeeze()
 
         score = core.score_data(test_y, cls.predict_proba(test_x))
+        return score, poly, cls
+
+    def run(self):
+        score, poly, cls = self.score()
 
         print(colors.green | colors.bold | (Stacker.__name__ + '::' + str(score)))
 
@@ -71,7 +79,8 @@ class Stacker(luigi.Task):
 
         index = pandas.Index(np.arange(test_X.shape[0]), name='test_id')
         pred = pandas.Series(predmat, index=index, name='is_duplicate').to_frame()
-        with gzip.open('cache/abhishek/stacked_pred.csv.gz.tmp', 'wt') as f:
+        with gzip.open('cache/abhishek/stacker/{:d}/stacked_pred.csv.gz.tmp'.format(self.npoly.get()), 'wt') as f:
             pred.to_csv(f)
-        os.rename('cache/abhishek/stacked_pred.csv.gz.tmp', 'cache/abhishek/stacked_pred.csv.gz')
-
+        os.rename('cache/abhishek/stacker/{:d}/stacked_pred.csv.gz.tmp'.format(self.npoly.get()),
+                  'cache/abhishek/stacker/{:d}/stacked_pred.csv.gz'.format(self.npoly.get()))
+        return score

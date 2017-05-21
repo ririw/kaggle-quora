@@ -1,3 +1,4 @@
+import hyperopt
 import luigi
 import numpy as np
 import pandas
@@ -15,8 +16,14 @@ __all__ = ['LightGBMClassifier']
 class LightGBMClassifier(FoldDependent):
     resources = {'cpu': 7}
 
-    n_estimators = hyper_helper.TuneableHyperparam(name='LightGBMClassifier_n_estimators')
-    num_leaves = hyper_helper.TuneableHyperparam(name='LightGBMClassifier_num_leaves')
+    #n_estimators = hyper_helper.TuneableHyperparam(
+    #    name='LightGBMClassifier_n_estimators',
+    #    prior=hyperopt.hp.randint(100, 2000)
+    #)
+    #num_leaves = hyper_helper.TuneableHyperparam(
+    #    name='LightGBMClassifier_num_leaves',
+    #    prior=hyperopt.hp.randint(100, 2000)
+    #)
 
     def _load(self, name):
         assert name in {'test', 'valid'}
@@ -35,8 +42,8 @@ class LightGBMClassifier(FoldDependent):
 
         X = abhishek_feats.AbhishekFeatures().load('train', self.fold)
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
-        cls = lgbsklearn.LGBMClassifier(num_leaves=self.num_leaves.get(),
-                                        n_estimators=self.n_estimators.get(),
+        cls = lgbsklearn.LGBMClassifier(num_leaves=1024,
+                                        n_estimators=1024,
                                         is_unbalance=True)
         X_tr, X_va, y_tr, y_va = model_selection.train_test_split(X, y, test_size=0.05)
         cls.fit(X_tr, y_tr,
