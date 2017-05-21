@@ -33,7 +33,7 @@ class BaseDataset(FoldIndependent):
         kaggle_test_data = pandas.read_csv(test_data_loc)
 
         q1_fold = kaggle_train_data.qid1.apply(lambda qid: mmh3.hash(str(qid)) % 3)
-        q2_fold = kaggle_train_data.qid2.apply(lambda qid: mmh3.hash(str(qid)) % 3 * 3)
+        q2_fold = kaggle_train_data.qid2.apply(lambda qid: mmh3.hash(str(qid)) % 2 * 3)
 
         fold_n = (q1_fold + q2_fold).values
         v = kaggle_train_data.is_duplicate.values

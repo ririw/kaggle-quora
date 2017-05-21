@@ -10,14 +10,12 @@ import pandas.core.generic
 class FoldIndependent(luigi.Task):
     def load(self, name, fold, as_np=True):
         assert name in {'train', 'test', 'valid'}
-        assert self.complete()
+        assert self.complete(), repr(self) + ' is not complete'
         if name == 'test':
             assert fold is None, 'If using test, fold should be None'
             res = self._load_test()
         else:
             features, folds = self._load()
-            #print(type(folds))
-            #print(type(features))
             nose.tools.assert_is_instance(folds, np.ndarray, 'Error while loading: ' + repr(self))
             if fold is None:
                 return features
@@ -61,4 +59,4 @@ class HyperTuneable:
         raise NotImplementedError
 
 
-fold_max = 9
+fold_max = 6

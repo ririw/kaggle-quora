@@ -16,15 +16,6 @@ __all__ = ['LightGBMClassifier']
 class LightGBMClassifier(FoldDependent):
     resources = {'cpu': 7}
 
-    #n_estimators = hyper_helper.TuneableHyperparam(
-    #    name='LightGBMClassifier_n_estimators',
-    #    prior=hyperopt.hp.randint(100, 2000)
-    #)
-    #num_leaves = hyper_helper.TuneableHyperparam(
-    #    name='LightGBMClassifier_num_leaves',
-    #    prior=hyperopt.hp.randint(100, 2000)
-    #)
-
     def _load(self, name):
         assert name in {'test', 'valid'}
         fn = 'cache/abhishek/lgbm/{:d}/{:s}.npy'.format(self.fold, name)

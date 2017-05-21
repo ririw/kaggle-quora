@@ -35,11 +35,15 @@ class HyperoptRunner(cli.Application):
         else:
             inst = cls()
         space = {}
+
         for task in self.all_tasks(inst):
             for var in vars(task.__class__):
                 v = getattr(task, var)
-                if isinstance(v, hyper_helper.TuneableHyperparam):
+                if isinstance(v, hyper_helper.TuneableHyperparam) and not v.disabled:
                     space[v.name] = v.prior
+                if isinstance(v, hyper_helper.LuigiTuneableHyperparam) and not v.disabled:
+                    assert isinstance(task, luigi.Task)
+                    space[task.task_id + '.' + var] = v.prior
 
         print(space)
 
@@ -48,10 +52,13 @@ class HyperoptRunner(cli.Application):
         def objective(args):
             nonlocal eval_count
             hyper_helper.TuneableHyperparam.set(args)
+            task_params = {}
+
             if issubclass(cls, FoldDependent):
                 inst = cls(fold=0)
             else:
                 inst = cls()
+
             # Run each subtask, if it hasn't been finished alread,
             # all the way up to the last task (whic is the inst()
             # task
@@ -70,8 +77,8 @@ class HyperoptRunner(cli.Application):
             print(colors.yellow | ('Hyperopt args: ' + pprint.pformat(args)))
             print(colors.yellow | 'Score: {:f}'.format(res))
             if np.isnan(res):
-                logging.warning('Result was NaN, using 1000 instead')
-                res = 1000
+                logging.warning('Result was NaN, using loss of 10 instead')
+                res = 10
             return res
 
         best = hyperopt.fmin(objective, space, hyperopt.tpe.suggest, max_evals=self.max_evals)

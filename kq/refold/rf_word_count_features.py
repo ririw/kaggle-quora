@@ -1,4 +1,6 @@
+import gzip
 import multiprocessing
+import pickle
 
 import luigi
 import numpy as np
@@ -16,22 +18,28 @@ __all__ = ['WordCountMatrix']
 class WordCountMatrix(FoldIndependent):
     resources = {'cpu': 8, 'mem': 3}
     ngram_max = luigi.IntParameter(default=3)
-    ngram_min_df = luigi.FloatParameter(default=0.001)
+    ngram_min_df = luigi.FloatParameter(default=0.0001)
 
     def _load(self):
-        feat = scipy.io.mmread('rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/train_mat.mtx'.format(self.ngram_max, self.ngram_min_df))
+        fn = 'rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/train_mat.pkl'.format(self.ngram_max, self.ngram_min_df)
+        with gzip.open(fn) as f:
+            feat = pickle.load(f)
         fold = rf_dataset.Dataset().load_dataset_folds()
         return feat.tocsr(), fold
 
     def _load_test(self):
-        feat = scipy.io.mmread('rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/test_mat.mtx'.format(self.ngram_max, self.ngram_min_df))
+        fn = 'rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/test_mat.pkl'.format(self.ngram_max, self.ngram_min_df)
+        with gzip.open(fn) as f:
+            feat = pickle.load(f)
+
         return feat.tocsr()
 
     def requires(self):
         yield rf_dataset.Dataset()
 
     def output(self):
-        return luigi.LocalTarget('rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/done_count'.format(self.ngram_max, self.ngram_min_df))
+        fn = 'rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/done_count'.format(self.ngram_max, self.ngram_min_df)
+        return luigi.LocalTarget(fn)
 
     def vectorize_question(self, q):
         tokens = self.tokenzier.tokenize(q)
@@ -72,7 +80,11 @@ class WordCountMatrix(FoldIndependent):
         test_vecs = diffs[train_data.shape[0]:]
         assert train_vecs.shape[0] == train_data.shape[0]
         assert test_vecs.shape[0] == test_data.shape[0]
-        scipy.io.mmwrite('rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/train_mat.mtx'.format(self.ngram_max, self.ngram_min_df), train_vecs)
-        scipy.io.mmwrite('rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/test_mat.mtx'.format(self.ngram_max, self.ngram_min_df), test_vecs)
+        train_name = 'rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/train_mat.pkl'.format(self.ngram_max, self.ngram_min_df)
+        test_name = 'rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/test_mat.pkl'.format(self.ngram_max, self.ngram_min_df)
+        with gzip.open(train_name, 'w') as f:
+            pickle.dump(train_vecs, f)
+        with gzip.open(test_name, 'w') as f:
+            pickle.dump(test_vecs, f)
         with self.output().open('w'):
             pass
