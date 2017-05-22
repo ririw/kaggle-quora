@@ -12,7 +12,7 @@ import nose.tools
 from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
-from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_sklearn
+from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn
 
 
 class Stacker(luigi.Task, HyperTuneable):
@@ -33,6 +33,8 @@ class Stacker(luigi.Task, HyperTuneable):
         return [
             rf_wc_logit.WordCountLogit(fold=fold),
             rf_wc_xtc.WordCountXTC(fold=fold),
+            rf_wc_sklearn.WC_LGB(fold=fold),
+            rf_wc_sklearn.WC_XGB(fold=fold),
             rf_ab_sklearn.ABLinear(fold=fold),
             rf_ab_sklearn.AB_XTC(fold=fold),
             rf_ab_sklearn.AB_LGB(fold=fold),
@@ -52,7 +54,7 @@ class Stacker(luigi.Task, HyperTuneable):
     def fold_x(self, fold, dataset):
         xs = [c.load(dataset) for c in self.classifiers(fold)]
         res = np.vstack(xs).T
-        return res
+        return pandas.DataFrame(res, columns=[c.__class__.__name__ for c in self.classifiers(fold)])
 
     def score(self):
         self.output().makedirs()
@@ -65,8 +67,15 @@ class Stacker(luigi.Task, HyperTuneable):
             nose.tools.assert_equal(x.shape[0], y.shape[0])
             train_Xs.append(x)
             train_ys.append(y)
-        train_X = poly.fit_transform(np.concatenate(train_Xs, 0))
+
+        cls = linear_model.LogisticRegression(class_weight=core.dictweights)
+        cls.fit(train_Xs[0], train_ys[0])
+        print(pandas.Series(cls.coef_[0], index=train_Xs[0].columns))
+
+        train_X = poly.fit_transform(pandas.concat(train_Xs, 0).values)
         train_y = np.concatenate(train_ys, 0).squeeze()
+
+
         cls = linear_model.LogisticRegression(class_weight=core.dictweights)
         cls.fit(train_X, train_y)
 

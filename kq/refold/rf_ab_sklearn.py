@@ -4,12 +4,13 @@ import numpy as np
 import pandas
 import sklearn.linear_model
 from plumbum import colors
-from sklearn import pipeline, preprocessing, ensemble, model_selection
+from sklearn import pipeline, preprocessing, ensemble, model_selection, feature_selection
 from lightgbm.sklearn import LGBMClassifier
 
 from kq import core
 from kq.feat_abhishek import FoldDependent, hyper_helper, fold_max
-from kq.refold import rf_dataset, rf_word_count_features, BaseTargetBuilder, rf_ab
+from kq.refold import rf_dataset, rf_word_count_features, BaseTargetBuilder, rf_ab, AutoExitingGBMLike
+from kq.refold.argpassing_rfe import ArgpassingRFE
 
 __all__ = ['ABSklearn', 'AllAB']
 
@@ -44,7 +45,8 @@ class ABSklearn(FoldDependent):
         X = ab_data.load('train', self.fold)
         y = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
 
-        cls = self.fit(X, y)
+        cls = self.make_cls()
+        cls.fit(X, y)
 
         X_val = ab_data.load('valid', self.fold)
         y_val = rf_dataset.Dataset().load('valid', self.fold, as_df=True).is_duplicate
@@ -63,10 +65,6 @@ class ABSklearn(FoldDependent):
         with self.output().open('w') as f:
             f.write('Score: {:s}: {:f}'.format(repr(self), score))
         return score
-
-    def fit(self, X, y):
-        cls = self.make_cls()
-        cls.fit(X, y)
 
 
 class ABLinear(ABSklearn):
@@ -113,14 +111,15 @@ class AB_XTC(ABSklearn):
         disable=False)
 
     def make_cls(self):
+        inner_cls = sklearn.ensemble.ExtraTreesClassifier(
+                n_estimators=512, n_jobs=-1,
+                verbose=1,
+                class_weight=core.dictweights,
+                min_samples_leaf=self.min_items.get())
         return pipeline.Pipeline([
             ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
             ('poly', preprocessing.PolynomialFeatures(2, include_bias=False)),
-            ('lin', sklearn.ensemble.ExtraTreesClassifier(
-                n_estimators=200, n_jobs=-1,
-                verbose=1,
-                class_weight=core.dictweights,
-                min_samples_leaf=self.min_items.get()))
+            ('xtc', inner_cls)
         ])
 
     def make_path(self, fname):
@@ -140,32 +139,31 @@ class AB_LGB(ABSklearn):
         transform=np.abs,
         disable=False)
 
-    num_leaves = hyper_helper.TuneableHyperparam(
-        'AB_LGB.num_leaves',
-        prior=hyperopt.hp.randint('AB_LGB.num_leaves', 6),
-        default=0,
-        transform=lambda v: 2 ** (v + 3),
+    min_child_samples = hyper_helper.TuneableHyperparam(
+        'AB_LGB.min_child_samples',
+        prior=hyperopt.hp.randint('AB_LGB.min_child_samples', 6),
+        default=5,
+        transform=lambda v: 2 ** v,
         disable=False)
 
     def make_cls(self):
-        return LGBMClassifier(
-            n_estimators=4096,
+        cls = LGBMClassifier(
+            n_estimators=2048,
             learning_rate=self.learning_rate.get(),
-            num_leaves=self.num_leaves.get(),
-            subsample=0.75
+            min_child_samples=self.min_child_samples.get(),
+            subsample=0.75,
         )
 
-    def fit(self, X, y):
-        cls = self.make_cls()
-        X_tr, X_te, y_tr, y_te = model_selection.train_test_split(X, y, test_size=0.05)
-        cls.fit(X_tr, y_tr, sample_weight=core.weight_from(y_tr), eval_set=[(X_te, y_te)],
-                early_stopping_rounds=25)
-        return cls
+        return pipeline.Pipeline([
+            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('poly', preprocessing.PolynomialFeatures(2, include_bias=False)),
+            ('lgb', AutoExitingGBMLike(cls, additional_fit_args={'verbose': False}))
+        ])
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_ab_lgbm',
-            'lr_{:f}_nl_{:d}'.format(self.learning_rate.get(), self.num_leaves.get()),
+            'lr_{:f}_mc_{:d}'.format(self.learning_rate.get(), self.min_child_samples.get()),
             str(self.fold)
         )
         return (base_path + fname).get()
@@ -190,19 +188,16 @@ class AB_XGB(ABSklearn):
         disable=False)
 
     def make_cls(self):
-        return XGBClassifier(
-            n_estimators=4096,
-            learning_rate=self.learning_rate.get(),
-            max_depth=self.max_depth.get(),
-            subsample=0.75
-        )
-
-    def fit(self, X, y):
-        cls = self.make_cls()
-        X_tr, X_te, y_tr, y_te = model_selection.train_test_split(X, y, test_size=0.05)
-        cls.fit(X_tr, y_tr, sample_weight=core.weight_from(y_tr), eval_set=[(X_te, y_te)],
-                early_stopping_rounds=25)
-        return cls
+        cls = XGBClassifier(
+                n_estimators=2048,
+                learning_rate=self.learning_rate.get(),
+                max_depth=self.max_depth.get(),
+                subsample=0.75)
+        return pipeline.Pipeline([
+            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('poly', preprocessing.PolynomialFeatures(2, include_bias=False)),
+            ('lgb', AutoExitingGBMLike(cls))
+        ])
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder(

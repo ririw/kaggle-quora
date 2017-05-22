@@ -20,7 +20,8 @@ class WordCountMatrix(FoldIndependent):
     ngram_max = luigi.IntParameter(default=3)
     ngram_min_df = luigi.FloatParameter(default=0.0001)
 
-    def _load(self):
+    def _load(self, as_df):
+        assert not as_df, 'Sparse matrix in word_count_features cannot be converted to dataframe'
         fn = 'rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/train_mat.pkl'.format(self.ngram_max, self.ngram_min_df)
         with gzip.open(fn) as f:
             feat = pickle.load(f)
