@@ -53,9 +53,13 @@ def clean_text(text):
 class Dataset(FoldIndependent):
     resources = {'cpu': 1}
 
-    def _load(self):
+    def _load(self, as_df):
         with gzip.open('rf_cache/dataset/train.msg.gz', 'r') as f:
-            td = pandas.read_msgpack(f)
+            if as_df:
+                td = pandas.read_msgpack(f)
+            else:
+                td = pandas.read_msgpack(f).values
+
         f = np.load('rf_cache/folds.npz')['data']
 
         return td, f
@@ -63,9 +67,12 @@ class Dataset(FoldIndependent):
     def load_dataset_folds(self):
         return np.load('rf_cache/folds.npz')['data']
 
-    def _load_test(self):
+    def _load_test(self, as_df):
         with gzip.open('rf_cache/dataset/test.msg.gz', 'r') as f:
-            return pandas.read_msgpack(f)
+            if as_df:
+                return pandas.read_msgpack(f)
+            else:
+                return pandas.read_msgpack(f).values
 
     def output(self):
         return luigi.LocalTarget('./rf_cache/dataset/done')

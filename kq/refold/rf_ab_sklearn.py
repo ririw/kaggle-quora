@@ -1,6 +1,7 @@
 import hyperopt
 import luigi
 import numpy as np
+import pandas
 import sklearn.linear_model
 from plumbum import colors
 from sklearn import pipeline, preprocessing, ensemble, model_selection
@@ -19,9 +20,12 @@ class ABSklearn(FoldDependent):
     def make_path(self, fname):
         raise NotImplementedError
 
-    def _load(self, name):
+    def _load(self, name, as_df):
         path = self.make_path(name + '.npz')
-        return np.load(path)['data']
+        if as_df:
+            return pandas.DataFrame({self.__class__.__name__: np.load(path)['data']})
+        else:
+            return np.load(path)['data']
 
     def requires(self):
         yield rf_dataset.Dataset()
@@ -37,20 +41,20 @@ class ABSklearn(FoldDependent):
         self.output().makedirs()
         ab_data = rf_ab.ABDataset()
 
-        X = ab_data.load('train', self.fold, as_np=False)
-        y = rf_dataset.Dataset().load('train', self.fold, as_np=False).is_duplicate
+        X = ab_data.load('train', self.fold)
+        y = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
 
         cls = self.fit(X, y)
 
-        X_val = ab_data.load('valid', self.fold, as_np=False)
-        y_val = rf_dataset.Dataset().load('valid', self.fold, as_np=False).is_duplicate
+        X_val = ab_data.load('valid', self.fold)
+        y_val = rf_dataset.Dataset().load('valid', self.fold, as_df=True).is_duplicate
 
         y_pred = cls.predict_proba(X_val)[:, 1]
         np.savez_compressed(self.make_path('valid.npz'), data=y_pred)
         score = core.score_data(y_val, y_pred)
 
         del X, y, X_val, y_val
-        X_test = ab_data.load('test', None, as_np=False)
+        X_test = ab_data.load('test', None)
         y_test_pred = cls.predict_proba(X_test)[:, 1]
         np.savez_compressed(self.make_path('test.npz'), data=y_test_pred)
 
@@ -98,24 +102,34 @@ class AB_XTC(ABSklearn):
     min_items = hyper_helper.TuneableHyperparam(
         'AB_XTC.min_items',
         prior=hyperopt.hp.randint('AB_XTC.min_items', 9),
-        transform=lambda v: 2**v,
-        default=10,
+        transform=lambda v: 2 ** v,
+        default=4,
+        disable=False)
+    poly_fetures = hyper_helper.TuneableHyperparam(
+        'AB_XTC.poly_fetures',
+        prior=hyperopt.hp.randint('AB_XTC.poly_fetures', 2),
+        transform=lambda v: v + 1,
+        default=1,
         disable=False)
 
     def make_cls(self):
-        return sklearn.ensemble.ExtraTreesClassifier(
-            n_estimators=500, n_jobs=-1,
-            class_weight=core.dictweights,
-            min_samples_leaf=self.min_items.get())
+        return pipeline.Pipeline([
+            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('poly', preprocessing.PolynomialFeatures(2, include_bias=False)),
+            ('lin', sklearn.ensemble.ExtraTreesClassifier(
+                n_estimators=200, n_jobs=-1,
+                verbose=1,
+                class_weight=core.dictweights,
+                min_samples_leaf=self.min_items.get()))
+        ])
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_ab_xtc',
-            'min_items_{:f}'.format(self.min_items.get()),
+            'min_items_{:f}_pf_{:d}'.format(self.min_items.get(), self.poly_fetures.get()),
             str(self.fold)
         )
         return (base_path + fname).get()
-
 
 
 class AB_LGB(ABSklearn):
@@ -156,14 +170,16 @@ class AB_LGB(ABSklearn):
         )
         return (base_path + fname).get()
 
+
 from xgboost.sklearn import XGBClassifier
+
 
 class AB_XGB(ABSklearn):
     max_depth = hyper_helper.TuneableHyperparam(
         'AB_XGB.max_depth',
         prior=hyperopt.hp.randint('AB_XGB.max_depth', 11),
         default=9,
-        transform=lambda v: v+1,
+        transform=lambda v: v + 1,
         disable=False)
 
     learning_rate = hyper_helper.TuneableHyperparam(

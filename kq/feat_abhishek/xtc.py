@@ -13,10 +13,13 @@ __all__ = ['XTCClassifier']
 class XTCClassifier(FoldDependent):
     resources = {'cpu': 7}
 
-    def _load(self, name):
+    def _load(self, name, as_df):
         assert name in {'test', 'valid'}
         fn = 'cache/abhishek/xtc/{:d}/{:s}.npy'.format(self.fold, name)
-        return pandas.Series(np.load(fn), name='XTC').to_frame()
+        if as_df:
+            return pandas.Series(np.load(fn), name='XTC').to_frame()
+        else:
+            return np.load(fn)
 
     def output(self):
         return luigi.LocalTarget('cache/abhishek/xtc/{:d}/done'.format(self.fold))
@@ -50,7 +53,7 @@ class XTCClassifier(FoldDependent):
         np.save('cache/abhishek/xtc/{:d}/test.npy'.format(self.fold), pred)
 
         with self.output().open('w') as f:
-            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold, as_np=False).columns
+            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold, as_df=True).columns
             v = pandas.Series(cls.feature_importances_, index=cols).sort_values()
             v.to_csv(f)
             f.write("\n")

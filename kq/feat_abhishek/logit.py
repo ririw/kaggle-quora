@@ -29,10 +29,13 @@ class LogitClassifier(FoldDependent, HyperTuneable):
         default=1,
         transform=lambda v: v+1)
 
-    def _load(self, name):
+    def _load(self, name, as_df):
         assert name in {'test', 'valid'}
         fn = 'cache/abhishek/logit/{:f}/{:d}/{:s}.npy'.format(self.C.get(), self.fold, name)
-        return pandas.DataFrame({'LogitClassifier': np.load(fn)})
+        if as_df:
+            return pandas.DataFrame({'LogitClassifier': np.load(fn)})
+        else:
+            return np.load(fn)
 
     def output(self):
         return luigi.LocalTarget('cache/abhishek/logit/{:f}/{:d}/done'.format(self.C.get(), self.fold))
@@ -48,7 +51,7 @@ class LogitClassifier(FoldDependent, HyperTuneable):
             ('poly', preprocessing.PolynomialFeatures(self.npoly.get()))
         ])
 
-        X = abhishek_feats.AbhishekFeatures().load('train', self.fold, as_np=False)
+        X = abhishek_feats.AbhishekFeatures().load('train', self.fold, as_df=True)
         X = preproc.fit_transform(X)
         y = xval_dataset.BaseDataset().load('train', self.fold).squeeze()
         cls = linear_model.LogisticRegression(

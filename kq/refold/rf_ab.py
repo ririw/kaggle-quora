@@ -40,10 +40,15 @@ class ABDataset(FoldIndependent):
         with self.output().open('w'):
             pass
 
-    def _load_test(self):
-        return pandas.read_pickle(self.make_path('test.pkl'))
+    def _load_test(self, as_df):
+        if as_df:
+            return pandas.read_pickle(self.make_path('test.pkl'))
+        else:
+            return pandas.read_pickle(self.make_path('test.pkl')).values
 
-    def _load(self):
+    def _load(self, as_df):
         data = pandas.read_pickle(self.make_path('train.pkl'))
+        if as_df:
+            data = data.values
         folds = rf_dataset.Dataset().load_dataset_folds()
         return data, folds

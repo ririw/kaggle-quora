@@ -31,10 +31,15 @@ class AbhishekFeatures(FoldIndependent, luigi.Task):
         with self.output().open('w'):
             pass
 
-    def _load_test(self):
-        return pandas.read_pickle('cache/abhishek/dataset/test.pkl')
+    def _load_test(self, as_df):
+        if as_df:
+            return pandas.read_pickle('cache/abhishek/dataset/test.pkl')
+        else:
+            return pandas.read_pickle('cache/abhishek/dataset/test.pkl').values
 
-    def _load(self):
+    def _load(self, as_df):
         data = pandas.read_pickle('cache/abhishek/dataset/train.pkl')
+        if not as_df:
+            data = data.values
         folds = xval_dataset.BaseDataset().load_dataset_folds()
         return data, folds

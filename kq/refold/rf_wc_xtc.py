@@ -1,6 +1,7 @@
 import hyperopt
 import luigi
 import numpy as np
+import pandas
 import sklearn.ensemble
 from plumbum import colors
 
@@ -44,9 +45,12 @@ class WordCountXTC(FoldDependent):
         )
         return (base_path + fname).get()
 
-    def _load(self, name):
+    def _load(self, name, as_df):
         path = self.make_path(name + '.npz')
-        return np.load(path)['data']
+        if as_df:
+            return pandas.DataFrame({'WordCountXTC': np.load(path)['data']})
+        else:
+            return np.load(path)['data']
 
     def requires(self):
         yield rf_dataset.Dataset()
@@ -61,8 +65,8 @@ class WordCountXTC(FoldDependent):
         wcm = rf_word_count_features.WordCountMatrix(
             ngram_max=self.ngram_max.get(),
             ngram_min_df=self.ngram_min_df.get())
-        X = wcm.load('train', self.fold, as_np=False)
-        y = rf_dataset.Dataset().load('train', self.fold, as_np=False).is_duplicate
+        X = wcm.load('train', self.fold, as_df=True)
+        y = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
 
         cls = sklearn.ensemble.ExtraTreesClassifier(
             n_estimators=500,
@@ -71,8 +75,8 @@ class WordCountXTC(FoldDependent):
             min_samples_leaf=self.min_leaf_samples.get())
         cls.fit(X, y)
 
-        X_val = wcm.load('valid', self.fold, as_np=False)
-        y_val = rf_dataset.Dataset().load('valid', self.fold, as_np=False).is_duplicate
+        X_val = wcm.load('valid', self.fold, as_df=True)
+        y_val = rf_dataset.Dataset().load('valid', self.fold, as_df=True).is_duplicate
 
         y_pred = cls.predict_proba(X_val)[:, 1]
         np.savez_compressed(self.make_path('valid.npz'), data=y_pred)
@@ -80,7 +84,7 @@ class WordCountXTC(FoldDependent):
         print('Score: {:s}: {:f}'.format(repr(self), score))
 
         del X, y, X_val, y_val
-        X_test = wcm.load('test', None, as_np=False)
+        X_test = wcm.load('test', None, as_df=True)
         y_test_pred = cls.predict_proba(X_test)[:, 1]
         np.savez_compressed(self.make_path('test.npz'), data=y_test_pred)
 

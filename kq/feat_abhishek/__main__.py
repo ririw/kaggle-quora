@@ -52,8 +52,8 @@ class HyperoptRunner(cli.Application):
         def objective(args):
             nonlocal eval_count
             hyper_helper.TuneableHyperparam.set(args)
-            task_params = {}
-
+            print(colors.yellow | ('Starting hyperopt run {:d} of {:d}'.format(eval_count, self.max_evals)))
+            print(colors.yellow | ('Hyperopt args: ' + pprint.pformat(args)))
             if issubclass(cls, FoldDependent):
                 inst = cls(fold=0)
             else:
@@ -73,9 +73,9 @@ class HyperoptRunner(cli.Application):
             # have different params.
             res = inst.run()
             print(inst)
-            print(colors.yellow | ('Hyperopt run {:d} of {:d}'.format(eval_count, self.max_evals)))
-            print(colors.yellow | ('Hyperopt args: ' + pprint.pformat(args)))
-            print(colors.yellow | 'Score: {:f}'.format(res))
+            print(colors.green | ('Finished hyperopt run {:d} of {:d}'.format(eval_count, self.max_evals)))
+            print(colors.green | ('Hyperopt args: ' + pprint.pformat(args)))
+            print(colors.green | 'Score: {:f}'.format(res))
             if np.isnan(res):
                 logging.warning('Result was NaN, using loss of 10 instead')
                 res = 10

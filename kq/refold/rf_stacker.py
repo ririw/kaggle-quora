@@ -51,16 +51,16 @@ class Stacker(luigi.Task, HyperTuneable):
 
     def fold_x(self, fold, dataset):
         xs = [c.load(dataset) for c in self.classifiers(fold)]
-
-        return np.concatenate(xs, 1)
+        res = np.vstack(xs).T
+        return res
 
     def score(self):
         self.output().makedirs()
         poly = preprocessing.PolynomialFeatures(self.npoly.get())
         train_Xs = []
         train_ys = []
-        for fold in range(1, 9):
-            y = rf_dataset.Dataset().load('valid', fold).squeeze()
+        for fold in range(1, fold_max):
+            y = rf_dataset.Dataset().load('valid', fold, as_df=True).is_duplicate.values.squeeze()
             x = self.fold_x(fold, 'valid')
             nose.tools.assert_equal(x.shape[0], y.shape[0])
             train_Xs.append(x)
@@ -71,7 +71,7 @@ class Stacker(luigi.Task, HyperTuneable):
         cls.fit(train_X, train_y)
 
         test_x = poly.transform(self.fold_x(0, 'valid'))
-        test_y = rf_dataset.Dataset().load('valid', 0).squeeze()
+        test_y = rf_dataset.Dataset().load('valid', 0, as_df=True).is_duplicate.values.squeeze()
 
         score = core.score_data(test_y, cls.predict_proba(test_x))
         return score, poly, cls

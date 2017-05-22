@@ -35,11 +35,14 @@ class XGBoostClassifier(FoldDependent):
         transform=lambda x: x + 100
     )
 
-    def _load(self, name):
+    def _load(self, name, as_df):
         assert name in {'test', 'valid'}
         fn = 'cache/abhishek/xgb/maxdepth_{:d}_eta_{:f}_nest_{:d}/{:d}/{:s}.npy'.format(
             self.max_depth.get(), self.eta.get(), self.n_est.get(), self.fold, name)
-        return pandas.Series(np.load(fn), name='XGBoost').to_frame()
+        if as_df:
+            return pandas.Series(np.load(fn), name='XGBoost').to_frame()
+        else:
+            return np.load(fn)
 
     def output(self):
         fn = 'cache/abhishek/xgb/maxdepth_{:d}_eta_{:f}_nest_{:d}/{:d}/done'.format(
@@ -81,7 +84,7 @@ class XGBoostClassifier(FoldDependent):
         np.save(test_fn, pred)
 
         with self.output().open('w') as f:
-            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold, as_np=False).columns
+            cols = abhishek_feats.AbhishekFeatures().load('valid', self.fold, as_df=True).columns
             v = pandas.Series(cls.feature_importances_, index=cols).sort_values()
             v.to_csv(f)
             f.write("\n\n")

@@ -27,7 +27,8 @@ class WordCountMatrix(FoldIndependent):
         fold = rf_dataset.Dataset().load_dataset_folds()
         return feat.tocsr(), fold
 
-    def _load_test(self):
+    def _load_test(self, as_df):
+        assert not as_df, 'Sparse matrix in word_count_features cannot be converted to dataframe'
         fn = 'rf_cache/rf_word_count_features/ng_{:d}_df_{:f}/test_mat.pkl'.format(self.ngram_max, self.ngram_min_df)
         with gzip.open(fn) as f:
             feat = pickle.load(f)
@@ -51,8 +52,8 @@ class WordCountMatrix(FoldIndependent):
         self.tokenzier = treebank.TreebankWordTokenizer()
         self.stemmer = snowball.SnowballStemmer('english')
         self.vectorizer = CountVectorizer(ngram_range=(1, self.ngram_max), min_df=self.ngram_min_df)
-        train_data = rf_dataset.Dataset().load('train', fold=None, as_np=False)
-        test_data = rf_dataset.Dataset().load('test', fold=None, as_np=False)
+        train_data = rf_dataset.Dataset().load('train', fold=None, as_df=True)
+        test_data = rf_dataset.Dataset().load('test', fold=None, as_df=True)
 
         all_questions = np.concatenate([
             train_data.question1.values,
