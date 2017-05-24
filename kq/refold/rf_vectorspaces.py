@@ -23,8 +23,8 @@ distances = [
     spatial.distance.chebyshev,
     spatial.distance.canberra,
     spatial.distance.braycurtis]
-English = None
 
+__all__ = ['VectorSpaceTask']
 
 class VectorSpaceTask(FoldIndependent):
     include_space = luigi.BoolParameter()

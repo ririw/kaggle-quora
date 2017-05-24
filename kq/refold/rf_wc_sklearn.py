@@ -4,13 +4,14 @@ import numpy as np
 import pandas
 from lightgbm.sklearn import LGBMClassifier
 from plumbum import colors
-from sklearn import model_selection, feature_selection
+from sklearn import model_selection, feature_selection, ensemble, linear_model
 
 from kq import core
 from kq.feat_abhishek import FoldDependent, hyper_helper
 from kq.refold import rf_dataset, rf_word_count_features, BaseTargetBuilder, AutoExitingGBMLike
 
 __all__ = ['WC_XGB', 'WC_LGB']
+
 
 class WCSklearn(FoldDependent):
     resources = {'cpu': 8, 'mem': 2}
@@ -126,6 +127,45 @@ class WC_XGB(WCSklearn):
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_wc_xgb',
+            'lr_{:f}_md_{:d}'.format(self.learning_rate.get(), self.max_depth.get()),
+            str(self.fold)
+        )
+        return (base_path + fname).get()
+
+
+class WC_XTC(WCSklearn):
+    min_leaf_samples = hyper_helper.TuneableHyperparam(
+        name='WordCountXTC_min_leaf_samples',
+        prior=hyperopt.hp.randint('WordCountXTC_min_leaf_samples', 20),
+        default=2,
+        transform=lambda v: (v + 1) * 5
+    )
+
+    def make_cls(self):
+        return ensemble.ExtraTreesClassifier(
+            n_jobs=-1,
+            n_estimators=500,
+            min_samples_leaf=self.min_leaf_samples.get()
+        )
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder(
+            'rf_wc_xtc',
+            'ls_{:d}'.format(self.min_leaf_samples.get()),
+            str(self.fold)
+        )
+        return (base_path + fname).get()
+
+
+class WC_Logit(WCSklearn):
+    def make_cls(self):
+        return linear_model.LogisticRegression(solver='sag', C=100)
+
+    resources = {'cpu': 2, 'mem': 4}
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder(
+            'rf_wc_logit',
             'lr_{:f}_md_{:d}'.format(self.learning_rate.get(), self.max_depth.get()),
             str(self.fold)
         )

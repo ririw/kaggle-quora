@@ -67,7 +67,7 @@ class ABSklearn(FoldDependent):
         return score
 
 
-class ABLinear(ABSklearn):
+class AB_Logit(ABSklearn):
     resources = {'cpu': 2, 'mem': 4}
 
     def make_cls(self):

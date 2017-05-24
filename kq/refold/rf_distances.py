@@ -12,6 +12,8 @@ from kq.feat_abhishek import FoldIndependent
 from kq.refold import BaseTargetBuilder, rf_dataset
 from kq.utils import w2v_file
 
+__all__ = ['RFDistanceCalculator']
+
 
 _independent_transformers = {}
 def register_indep_transform(name):

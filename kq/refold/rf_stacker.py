@@ -12,7 +12,8 @@ import nose.tools
 from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
-from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn
+from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn, \
+    rf_small_features
 
 
 class Stacker(luigi.Task, HyperTuneable):
@@ -31,14 +32,16 @@ class Stacker(luigi.Task, HyperTuneable):
 
     def classifiers(self, fold):
         return [
-            rf_wc_logit.WordCountLogit(fold=fold),
-            rf_wc_xtc.WordCountXTC(fold=fold),
             rf_wc_sklearn.WC_LGB(fold=fold),
             rf_wc_sklearn.WC_XGB(fold=fold),
-            rf_ab_sklearn.ABLinear(fold=fold),
+            rf_wc_sklearn.WC_XTC(fold=fold),
+            rf_wc_sklearn.WC_Logit(fold=fold),
+            rf_ab_sklearn.AB_Logit(fold=fold),
             rf_ab_sklearn.AB_XTC(fold=fold),
             rf_ab_sklearn.AB_LGB(fold=fold),
             rf_ab_sklearn.AB_XGB(fold=fold),
+            rf_small_features.SmallFeatureXTC(fold=fold),
+            rf_small_features.SmallFeatureLogit(fold=fold),
         ]
 
     def make_path(self, fname):

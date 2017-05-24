@@ -10,7 +10,7 @@ from tqdm import tqdm
 from kq.feat_abhishek import FoldIndependent
 from kq.refold import rf_word_count_features, BaseTargetBuilder, rf_vectorspaces, rf_dataset
 
-__all__ = ['LDADecomposition']
+__all__ = ['LDADecomposition', 'NMFDecomposition', 'AllDecompositions']
 
 
 class Decomposition(FoldIndependent):
@@ -52,7 +52,7 @@ class Decomposition(FoldIndependent):
                 'chebyshev',
                 'canberra',
                 'braycurtis'] + ['decomp_{:s}_{:0d}'.format(self.__class__.__name__, i)
-                                 for i in range(self.decomp_components())]
+                                 for i in range(self.n_components())]
 
     def run(self):
         self.output().makedirs()
@@ -88,6 +88,12 @@ class Decomposition(FoldIndependent):
             desc='vectorizing the testing data'
         ))
 
+        train_dists = np.asarray(train_dists)
+        test_dists = np.asarray(test_dists)
+
+        print('Decomposition finished, shape of train result is: ' + str(train_dists.shape))
+        print('Decomposition finished, shape of test result is: ' + str(test_dists.shape))
+
         np.savez_compressed(self.make_path('train.npz'), data=train_dists)
         np.savez_compressed(self.make_path('test.npz'), data=test_dists)
         with self.output().open('w'):
@@ -96,7 +102,7 @@ class Decomposition(FoldIndependent):
     def decomposition(self) -> base.TransformerMixin:
         raise NotImplementedError
 
-    def decomp_components(self) -> int:
+    def n_components(self) -> int:
         raise NotImplementedError
 
     def make_path(self, fname):
@@ -104,23 +110,35 @@ class Decomposition(FoldIndependent):
 
 
 class NMFDecomposition(Decomposition):
-    def decomp_components(self) -> int:
+    def n_components(self) -> int:
         return 10
 
     def decomposition(self) -> base.TransformerMixin:
-        return decomposition.NMF(n_components=self.decomp_components())
+        return decomposition.NMF(n_components=self.n_components())
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder('rf_decompositions', 'nmf')
         return (base_path + fname).get()
 
 
-class LDADecomposition(Decomposition):
-    def decomp_components(self) -> int:
+class SVDDecomposition(Decomposition):
+    def n_components(self) -> int:
         return 10
 
     def decomposition(self) -> base.TransformerMixin:
-        return decomposition.LatentDirichletAllocation(n_topics=self.decomp_components(), n_jobs=-1)
+        return decomposition.TruncatedSVD(n_components=self.n_components())
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder('rf_decompositions', 'svd')
+        return (base_path + fname).get()
+
+
+class LDADecomposition(Decomposition):
+    def n_components(self) -> int:
+        return 10
+
+    def decomposition(self) -> base.TransformerMixin:
+        return decomposition.LatentDirichletAllocation(n_topics=self.n_components())
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder('rf_decompositions', 'lda')
@@ -129,8 +147,9 @@ class LDADecomposition(Decomposition):
 
 class AllDecompositions(FoldIndependent):
     def requires(self):
-        yield LDADecomposition()
+        yield SVDDecomposition()
         yield NMFDecomposition()
+        yield LDADecomposition()
 
     def complete(self):
         for r in self.requires():
