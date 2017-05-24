@@ -176,14 +176,14 @@ class AB_XGB(ABSklearn):
     max_depth = hyper_helper.TuneableHyperparam(
         'AB_XGB.max_depth',
         prior=hyperopt.hp.randint('AB_XGB.max_depth', 11),
-        default=9,
+        default=8,
         transform=lambda v: v + 1,
         disable=False)
 
     learning_rate = hyper_helper.TuneableHyperparam(
         'AB_XGB.learning_rate',
         prior=hyperopt.hp.normal('AB_XTC.learning_rate', 0, 0.25),
-        default=0.48585291338722997,
+        default=-0.27617359262812374,
         transform=np.abs,
         disable=False)
 

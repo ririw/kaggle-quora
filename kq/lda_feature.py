@@ -57,7 +57,7 @@ class DecompositionFeatureVectors(luigi.Task):
         X = sp.vstack(train_data)
 
         logger.info('Training decomposer')
-        self.decomposer = self.make_decomposer()
+        self.decomposer = self
         train_decomp = self.decomposer.fit_transform(X)
         train_d1, train_d2 = train_decomp[:train_decomp.shape[0] // 2], train_decomp[train_decomp.shape[0] // 2:]
         logger.info('Calculating train distances')

@@ -18,7 +18,7 @@ class HyperoptRunner(cli.Application):
     max_evals = cli.SwitchAttr('-e', argtype=int, help='Max evals', default=10)
     def all_tasks(self, root_task):
         subtasks = []
-        for task in root_task.requires():
+        for task in root_task.requires:
             subtasks.extend(self.all_tasks(task))
         subtasks.append(root_task)
 

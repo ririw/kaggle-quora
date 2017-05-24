@@ -1,7 +1,8 @@
+import logging
 import luigi
 import pandas
 
-from kq import distances, lda_feature
+from kq import distances, lda_feature, intersection_magic
 from kq import question_freq
 from kq import question_vectors
 from kq import sentiments
@@ -19,6 +20,7 @@ class FeatureCollection(luigi.Task):
         yield question_freq.QuestionFrequencyFeature()
         yield lda_feature.LDADecompositionFeatureVectors()
         yield lda_feature.NMFDecompositionFeatureVectors()
+        yield intersection_magic.IntersectionMagicFeature()
 
     def complete(self):
         for r in self.requires():
@@ -37,4 +39,12 @@ class FeatureCollection(luigi.Task):
             else:
                 for col in range(v.shape[1]):
                     cols['{}_{}'.format(r.__class__.__name__, col)] = v[:, col]
+
+        colsize = None
+        for colname, col in cols.items():
+            if colsize is None:
+                colsize = col.shape
+            else:
+                if col.shape[0] != colsize[0]:
+                    logging.error('Column size different: {} vs {} for column {}'.format(col.shape, colsize, colname))
         return pandas.DataFrame(cols).fillna(-1000).clip(-999, 999)

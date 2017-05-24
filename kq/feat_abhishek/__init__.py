@@ -8,6 +8,13 @@ import pandas.core.generic
 
 
 class FoldIndependent(luigi.Task):
+    def load_all(self, name, as_df=True):
+        assert name in {'train', 'test'}
+        if name == 'train':
+            return self._load(as_df)[0]
+        else:
+            return self._load_test(as_df)
+
     def load(self, name, fold, as_df=False):
         assert name in {'train', 'test', 'valid'}
         assert self.complete(), repr(self) + ' is not complete'
