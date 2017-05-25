@@ -8,6 +8,7 @@ from sklearn import decomposition, base
 from tqdm import tqdm
 
 from kq.feat_abhishek import FoldIndependent
+import kq.core
 from kq.refold import rf_word_count_features, BaseTargetBuilder, rf_vectorspaces, rf_dataset
 
 __all__ = ['LDADecomposition', 'NMFDecomposition', 'AllDecompositions']
@@ -15,7 +16,7 @@ __all__ = ['LDADecomposition', 'NMFDecomposition', 'AllDecompositions']
 
 class Decomposition(FoldIndependent):
     def _load_test(self, as_df):
-        feat = np.load(self.make_path('test.npz'))['data']
+        feat = kq.core.fillna(np.load(self.make_path('test.npz'))['data'], 9999).clip(-10000, 10000)
         if as_df:
             return pandas.DataFrame(feat, columns=self.columns())
         else:
@@ -23,7 +24,7 @@ class Decomposition(FoldIndependent):
 
     def _load(self, as_df):
         folds = rf_dataset.Dataset().load_dataset_folds()
-        feat = np.load(self.make_path('train.npz'))['data']
+        feat = kq.core.fillna(np.load(self.make_path('train.npz'))['data'], 9999).clip(-10000, 10000)
         if as_df:
             return pandas.DataFrame(feat, columns=self.columns()), folds
         else:
@@ -149,7 +150,6 @@ class AllDecompositions(FoldIndependent):
     def requires(self):
         yield SVDDecomposition()
         yield NMFDecomposition()
-        yield LDADecomposition()
 
     def complete(self):
         for r in self.requires():
@@ -160,8 +160,11 @@ class AllDecompositions(FoldIndependent):
     def _load_test(self, as_df):
         decomps = [r._load_test(as_df) for r in self.requires()]
         if as_df:
-            for d in decomps:
-                d.columns = d.c
+            for decomp, req in zip(decomps, self.requires()):
+                self.wangjangle_columns(decomp, req)
+            decomps = pandas.concat(decomps, 1)
+        else:
+            decomps = np.concatenate(decomps, 1)
         return decomps
 
     def _load(self, as_df):
@@ -170,7 +173,11 @@ class AllDecompositions(FoldIndependent):
             for d, r in zip(decomps, self.requires()):
                 self.wangjangle_columns(d, r)
             decomps = pandas.concat(decomps, 1)
-        return decomps
+        else:
+            decomps = np.concatenate(decomps, 1)
+        folds = rf_dataset.Dataset().load_dataset_folds()
+
+        return decomps, folds
 
     def wangjangle_columns(self, data, req):
         data.cols = [req.__class__.__name__ + c for c in data.cols]

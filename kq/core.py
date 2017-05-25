@@ -54,3 +54,11 @@ def score_data(y_true, y_pred):
     loss = sklearn.metrics.log_loss(y_true, y_pred, sample_weight=weights)
 
     return loss
+
+
+def fillna(vec, v=0, inplace=False):
+    if not inplace:
+        vec = vec.copy()
+    isna = np.isnan(vec)
+    vec[isna] = v
+    return vec

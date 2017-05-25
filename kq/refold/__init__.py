@@ -49,3 +49,6 @@ class AutoExitingGBMLike(BaseEstimator):
     @property
     def feature_importances_(self):
         return self.cls.feature_importances_
+
+    def __repr__(self):
+        return 'AutoExitingGBMLike({:s})'.format(repr(self.cls))

@@ -99,14 +99,15 @@ class RFDistanceCalculator(FoldIndependent):
         yield rf_dataset.Dataset()
 
     def _load_test(self, as_df):
+        features = pandas.read_msgpack(_test_loc).fillna(9999).clip(-10000, 10000)
         if as_df:
-            return pandas.read_msgpack(_test_loc)
+            return features
         else:
-            return pandas.read_msgpack(_test_loc).values
+            return features.values
 
     def _load(self, as_df):
         folds = rf_dataset.Dataset().load_dataset_folds()
-        features = pandas.read_msgpack(_train_loc)
+        features = pandas.read_msgpack(_train_loc).fillna(9999).clip(-10000, 10000)
         if as_df:
             features = features.values
         return features, folds

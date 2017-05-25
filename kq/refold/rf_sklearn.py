@@ -47,7 +47,7 @@ class RF_SKLearn(FoldDependent):
         y = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
 
         cls = self.make_cls()
-        print('Training classifier {:s} on data of size: {}'.format(repr(cls), X.shape[0]))
+        print('Training classifier {:s} on data of size: {}'.format(repr(cls), X.shape))
         cls.fit(X, y)
 
         X_val = data.load('valid', self.fold)

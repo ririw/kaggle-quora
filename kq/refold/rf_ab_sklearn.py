@@ -149,6 +149,7 @@ class AB_LGB(ABSklearn):
     def make_cls(self):
         cls = LGBMClassifier(
             n_estimators=2048,
+            num_leaves=1024,
             learning_rate=self.learning_rate.get(),
             min_child_samples=self.min_child_samples.get(),
             subsample=0.75,

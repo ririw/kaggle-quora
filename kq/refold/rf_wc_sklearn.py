@@ -83,6 +83,7 @@ class WC_LGB(WCSklearn):
     def make_cls(self):
         cls = LGBMClassifier(
             n_estimators=2048,
+            num_leaves=1024,
             learning_rate=self.learning_rate.get(),
             min_child_samples=self.min_child_samples.get(),
             subsample=0.75,
@@ -166,7 +167,6 @@ class WC_Logit(WCSklearn):
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_wc_logit',
-            'lr_{:f}_md_{:d}'.format(self.learning_rate.get(), self.max_depth.get()),
             str(self.fold)
         )
         return (base_path + fname).get()

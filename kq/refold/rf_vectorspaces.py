@@ -8,6 +8,7 @@ from nltk.tokenize import treebank
 from scipy import spatial
 from tqdm import tqdm
 
+import kq.core
 from kq.feat_abhishek import FoldIndependent
 from kq.refold import rf_dataset, BaseTargetBuilder
 import numpy as np
@@ -37,7 +38,7 @@ class VectorSpaceTask(FoldIndependent):
         return (base_path + fname).get()
 
     def _load_test(self, as_df):
-        res = np.load(self.make_path('test.npz'))['data']
+        res = kq.core.fillna(np.load(self.make_path('test.npz'))['data'], 9999).clip(-10000, 10000)
         if self.include_space:
             res = res[:len(distances)]
             cols = self.colnames()[:len(distances)]
@@ -50,7 +51,7 @@ class VectorSpaceTask(FoldIndependent):
 
     def _load(self, as_df):
         assert not as_df
-        res = np.load(self.make_path('train.npz'))['data']
+        res = kq.core.fillna(np.load(self.make_path('train.npz'))['data'], 9999).clip(-10000, 10000)
         if self.include_space:
             res = res[:len(distances)]
             cols = self.colnames()[:len(distances)]

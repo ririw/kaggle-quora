@@ -42,6 +42,8 @@ class Stacker(luigi.Task, HyperTuneable):
             rf_ab_sklearn.AB_XGB(fold=fold),
             rf_small_features.SmallFeatureXTC(fold=fold),
             rf_small_features.SmallFeatureLogit(fold=fold),
+            rf_small_features.SmallFeatureLGB(fold=fold),
+            rf_small_features.SmallFeatureXGB(fold=fold),
         ]
 
     def make_path(self, fname):
