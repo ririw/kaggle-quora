@@ -69,14 +69,14 @@ class WC_LGB(WCSklearn):
     learning_rate = hyper_helper.TuneableHyperparam(
         'WC_LGB.learning_rate',
         prior=hyperopt.hp.normal('WC_LGB.learning_rate', 0, 0.25),
-        default=0.32639409757569904,
+        default=0.05778176353527653,
         transform=np.abs,
         disable=False)
 
     min_child_samples = hyper_helper.TuneableHyperparam(
         'WC_LGB.min_child_samples',
         prior=hyperopt.hp.randint('WC_LGB.min_child_samples', 6),
-        default=5,
+        default=3,
         transform=lambda v: 2 ** v,
         disable=False)
 
@@ -88,7 +88,7 @@ class WC_LGB(WCSklearn):
             min_child_samples=self.min_child_samples.get(),
             subsample=0.75,
         )
-        return AutoExitingGBMLike(cls)
+        return AutoExitingGBMLike(cls, additional_fit_args={'verbose': False})
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
@@ -113,13 +113,13 @@ class WC_XGB(WCSklearn):
     learning_rate = hyper_helper.TuneableHyperparam(
         'WC_XGB.learning_rate',
         prior=hyperopt.hp.normal('WC_XGB.learning_rate', 0, 0.25),
-        default=0.48585291338722997,
+        default=0.05,
         transform=np.abs,
         disable=False)
 
     def make_cls(self):
         return AutoExitingGBMLike(XGBClassifier(
-            n_estimators=4096,
+            n_estimators=2048,
             learning_rate=self.learning_rate.get(),
             max_depth=self.max_depth.get(),
             subsample=0.75

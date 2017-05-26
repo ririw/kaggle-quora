@@ -18,6 +18,7 @@ from kq.feat_abhishek import FoldIndependent
 __all__ = ['Dataset']
 
 def clean_text(text):
+    text = text.lower()
     text = re.sub(r"[^A-Za-z0-9^,!.\/'+-=]", " ", text)
     text = re.sub(r"what's", "what is ", text)
     text = re.sub(r"\'s", " ", text)

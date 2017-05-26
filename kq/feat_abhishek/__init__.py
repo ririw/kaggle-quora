@@ -28,10 +28,10 @@ class FoldIndependent(luigi.Task):
                 return features
             folds = (folds + fold) % fold_max
             if name == 'valid':
-                fold_ix = folds == 0
+                selection = folds == 0
             else:
-                fold_ix = folds != 0
-            res = features[fold_ix]
+                selection = folds != 0
+            res = features[selection]
 
         if as_df:
             nose.tools.assert_is_instance(res, pandas.DataFrame)

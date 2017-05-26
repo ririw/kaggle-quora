@@ -7,7 +7,8 @@ import lightgbm.sklearn
 
 from kq import core
 from kq.feat_abhishek import FoldIndependent, hyper_helper
-from kq.refold import rf_dataset, rf_decomposition, rf_distances, rf_vectorspaces, BaseTargetBuilder, AutoExitingGBMLike
+from kq.refold import rf_dataset, rf_decomposition, rf_distances, rf_vectorspaces, BaseTargetBuilder, \
+    AutoExitingGBMLike, rf_magic_features
 from kq.refold.rf_sklearn import RF_SKLearn
 
 __all__ = ['SmallFeatureLogit', 'SmallFeatureXTC', 'SmallFeatureLGB']
@@ -26,9 +27,14 @@ class SmallFeaturesTask(FoldIndependent):
 
     def _load(self, as_df):
         Xs = []
+        n_vs = None
         for r in self.requires():
             x = r.load_all('train', as_df)
             nose.tools.assert_equal(len(x.shape), 2, repr(r))
+            if n_vs is None:
+                n_vs = x.shape[0]
+            else:
+                nose.tools.assert_equal(n_vs, x.shape[0], repr(r))
             Xs.append(x)
 
         folds = rf_dataset.Dataset().load_dataset_folds()
@@ -41,6 +47,9 @@ class SmallFeaturesTask(FoldIndependent):
         yield rf_decomposition.AllDecompositions()
         yield rf_distances.RFDistanceCalculator()
         yield rf_vectorspaces.VectorSpaceTask(include_space=False)
+        yield rf_magic_features.QuestionFrequency()
+        yield rf_magic_features.NeighbourhoodFeature()
+        yield rf_magic_features.QuestionOrderFeature()
 
     def complete(self):
         for req in self.requires():
