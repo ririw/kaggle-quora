@@ -13,7 +13,7 @@ import nose.tools
 from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
-from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn, \
+from kq.refold import rf_dataset, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn, \
     rf_small_features, rf_keras, rf_naive_bayes
 
 

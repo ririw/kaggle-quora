@@ -1,22 +1,23 @@
+import multiprocessing
+
 import hyperopt
 import luigi
 import numpy as np
 import pandas
 import sklearn.linear_model
-from plumbum import colors
-from sklearn import pipeline, preprocessing, ensemble, model_selection, feature_selection
 from lightgbm.sklearn import LGBMClassifier
+from plumbum import colors
+from sklearn import pipeline, preprocessing
 
 from kq import core
-from kq.feat_abhishek import FoldDependent, hyper_helper, fold_max
-from kq.refold import rf_dataset, rf_word_count_features, BaseTargetBuilder, rf_ab, AutoExitingGBMLike
-from kq.refold.argpassing_rfe import ArgpassingRFE
+from kq.feat_abhishek import FoldDependent, hyper_helper
+from kq.refold import rf_dataset, BaseTargetBuilder, rf_ab, AutoExitingGBMLike
 
 __all__ = ['ABSklearn', 'AllAB']
 
 
 class ABSklearn(FoldDependent):
-    resources = {'cpu': 8, 'mem': 2}
+    resources = {'cpu': 7, 'mem': 2}
 
     def make_path(self, fname):
         raise NotImplementedError

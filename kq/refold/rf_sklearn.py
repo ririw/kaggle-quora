@@ -1,16 +1,11 @@
-import hyperopt
 import luigi
 import numpy as np
 import pandas
-import sklearn.linear_model
 from plumbum import colors
-from sklearn import pipeline, preprocessing, ensemble, model_selection, feature_selection
-from lightgbm.sklearn import LGBMClassifier
 
 from kq import core
-from kq.feat_abhishek import FoldDependent, hyper_helper, fold_max, FoldIndependent
-from kq.refold import rf_dataset, rf_word_count_features, BaseTargetBuilder, rf_ab, AutoExitingGBMLike
-from kq.refold.argpassing_rfe import ArgpassingRFE
+from kq.feat_abhishek import FoldDependent, FoldIndependent
+from kq.refold import rf_dataset
 
 __all__ = ['RF_SKLearn',]
 

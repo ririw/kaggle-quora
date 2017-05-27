@@ -18,7 +18,7 @@ from kq import dataset, core, lightgbm
 
 
 class XGBlassifier(luigi.Task):
-    resources = {'cpu': 8}
+    resources = {'cpu': 7}
 
     xgb_path = luigi.Parameter(default=os.path.expanduser('~/Downloads/xgboost/xgboost'))
 

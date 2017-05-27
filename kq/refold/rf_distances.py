@@ -95,6 +95,7 @@ def transform(item):
 
 
 class RFDistanceCalculator(FoldIndependent):
+    resources = {'cpu': 7}
     def requires(self):
         yield rf_dataset.Dataset()
 

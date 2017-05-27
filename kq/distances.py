@@ -150,7 +150,7 @@ class CharsDistance(DistancesGroup):
 
 class WordMoverDistance(DistancesGroup):
     class WordMoverDistanceSubTask(DistanceSubTask):
-        resources = dict(cpu=2, mem=2)
+        resources = {'cpu': 2, 'mem': 2}
 
         def dist_fn(self, xs, ys):
             assert False, "Should never be called."

@@ -18,7 +18,7 @@ __all__ = ['WordCountMatrix']
 
 
 class WordCountMatrix(FoldIndependent):
-    resources = {'cpu': 8, 'mem': 3}
+    resources = {'cpu': 7, 'mem': 3}
     ngram_max = luigi.IntParameter(default=3)
     ngram_min_df = luigi.FloatParameter(default=0.0001)
 

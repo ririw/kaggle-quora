@@ -114,7 +114,7 @@ class TestSVMData(SVMData):
 
 
 class GBMClassifier(luigi.Task):
-    resources = {'cpu': 8}
+    resources = {'cpu': 7}
 
     lightgbm_path = luigi.Parameter(default=os.path.expanduser('~/Downloads/LightGBM/lightgbm'))
     dataset_kind = luigi.Parameter()

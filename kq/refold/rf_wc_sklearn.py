@@ -1,3 +1,5 @@
+import multiprocessing
+
 import hyperopt
 import luigi
 import numpy as np
@@ -14,7 +16,7 @@ __all__ = ['WC_XGB', 'WC_LGB']
 
 
 class WCSklearn(FoldDependent):
-    resources = {'cpu': 8, 'mem': 2}
+    resources = {'cpu': 7, 'mem': 2}
 
     def make_path(self, fname):
         raise NotImplementedError

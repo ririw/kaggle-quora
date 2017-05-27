@@ -2,8 +2,8 @@ import multiprocessing
 
 import gensim
 import luigi
+import numpy as np
 import pandas
-import spacy
 from nltk.tokenize import treebank
 from scipy import spatial
 from tqdm import tqdm
@@ -11,8 +11,6 @@ from tqdm import tqdm
 import kq.core
 from kq.feat_abhishek import FoldIndependent
 from kq.refold import rf_dataset, BaseTargetBuilder
-import numpy as np
-
 from kq.utils import w2v_file
 
 distances = [
@@ -29,6 +27,8 @@ __all__ = ['VectorSpaceTask']
 
 
 class VectorSpaceTask(FoldIndependent):
+    resources = {'cpu': 7}
+
     include_space = luigi.BoolParameter()
 
     def requires(self):
