@@ -7,17 +7,33 @@ from keras.preprocessing.sequence import pad_sequences
 from keras.preprocessing.text import Tokenizer
 from nltk.tokenize import treebank
 
-from kq.feat_abhishek import FoldIndependent
+from kq.feat_abhishek import FoldIndependent, fold_max
 from kq.refold import BaseTargetBuilder, rf_dataset, rf_small_features
 from kq.utils import w2v_file
 
-__all__ = ['RFSequenceDataset']
+__all__ = ['RFWordSequenceDataset']
+
 
 class RFWordSequenceDataset(FoldIndependent):
     resources = {'cpu': 1, 'mem': 2}
+
+    def load_all(self, name, as_df=False, include_smallfeat=True):
+        nose.tools.assert_in(name, {'train', 'test'})
+        assert not as_df
+        assert include_smallfeat
+        if name == 'train':
+            questions = np.load(self.make_path('train.npz'))
+            smallfeat, _ = rf_small_features.SmallFeaturesTask()._load(False)
+            return questions['q1'], questions['q2'], smallfeat
+        else:
+            questions = np.load(self.make_path('test.npz'))
+            smallfeat = rf_small_features.SmallFeaturesTask()._load_test(False)
+            return questions['q1'], questions['q2'], smallfeat
+
     def load(self, name, fold, as_df=False, include_smallfeat=True):
         assert self.complete()
         assert not as_df, 'Dataframe mode not supported'
+        assert include_smallfeat, 'implement in load_all then remove assert.'
         assert name in {'train', 'test', 'valid'}
         if name == 'test':
             res = np.load(self.make_path('test.npz'))
@@ -29,8 +45,7 @@ class RFWordSequenceDataset(FoldIndependent):
         else:
             res = np.load(self.make_path('train.npz'))
             smallfeat, sm_folds = rf_small_features.SmallFeaturesTask()._load(False)
-            folds = rf_dataset.Dataset().load_dataset_folds()
-            np.testing.assert_equal(sm_folds, folds, 'Folds differ, thats super weird')
+            folds = (rf_dataset.Dataset().load_dataset_folds() + fold) % fold_max
             if name == 'valid':
                 selection = folds == 0
             else:
@@ -74,9 +89,9 @@ class RFWordSequenceDataset(FoldIndependent):
         all_seqs = tokenizer.texts_to_sequences(all_words)
         all_padded_seqs = pad_sequences(all_seqs, 32)
 
-        train_seqs = all_padded_seqs[:train_dataset.shape[0]*2]
-        test_seqs = all_padded_seqs[train_dataset.shape[0]*2:]
-        nose.tools.assert_equal(test_seqs.shape[0], test_dataset.shape[0]*2)
+        train_seqs = all_padded_seqs[:train_dataset.shape[0] * 2]
+        test_seqs = all_padded_seqs[train_dataset.shape[0] * 2:]
+        nose.tools.assert_equal(test_seqs.shape[0], test_dataset.shape[0] * 2)
 
         train_q1 = train_seqs[:train_dataset.shape[0]]
         train_q2 = train_seqs[train_dataset.shape[0]:]

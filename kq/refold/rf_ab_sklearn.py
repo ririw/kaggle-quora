@@ -72,7 +72,7 @@ class AB_Logit(ABSklearn):
 
     def make_cls(self):
         return pipeline.Pipeline([
-            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('norm', preprocessing.Normalizer()),
             ('poly', preprocessing.PolynomialFeatures(2)),
             ('lin', sklearn.linear_model.LogisticRegression(
                 C=self.C,
@@ -156,7 +156,7 @@ class AB_LGB(ABSklearn):
         )
 
         return pipeline.Pipeline([
-            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('norm', preprocessing.Normalizer()),
             ('poly', preprocessing.PolynomialFeatures(2, include_bias=False)),
             ('lgb', AutoExitingGBMLike(cls, additional_fit_args={'verbose': False}))
         ])
@@ -195,7 +195,7 @@ class AB_XGB(ABSklearn):
                 max_depth=self.max_depth.get(),
                 subsample=0.75)
         return pipeline.Pipeline([
-            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('norm', preprocessing.Normalizer()),
             ('poly', preprocessing.PolynomialFeatures(2, include_bias=False)),
             ('lgb', AutoExitingGBMLike(cls))
         ])

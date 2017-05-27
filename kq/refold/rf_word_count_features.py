@@ -90,7 +90,7 @@ class WordCountMatrix(FoldIndependent):
         self.write_mat_to(self.make_path('test_q1.pkl'), test_q1s)
         self.write_mat_to(self.make_path('test_q2.pkl'), test_q2s)
 
-        diffs = sp.hstack([q1s + q2s, q1s.multiply(q2s)]).tocsr()
+        diffs = sp.hstack([np.abs(q1s - q2s), q1s.multiply(q2s)]).tocsr()
 
         train_vecs = diffs[:train_data.shape[0]]
         test_vecs = diffs[train_data.shape[0]:]

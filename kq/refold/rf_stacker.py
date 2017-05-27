@@ -1,6 +1,7 @@
 import gzip
 
 import hyperopt
+import lightgbm
 import numpy as np
 import luigi
 import pandas
@@ -13,7 +14,7 @@ from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
 from kq.refold import rf_dataset, rf_wc_logit, rf_wc_xtc, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn, \
-    rf_small_features
+    rf_small_features, rf_keras, rf_naive_bayes
 
 
 class Stacker(luigi.Task, HyperTuneable):
@@ -44,6 +45,9 @@ class Stacker(luigi.Task, HyperTuneable):
             rf_small_features.SmallFeatureLogit(fold=fold),
             rf_small_features.SmallFeatureLGB(fold=fold),
             rf_small_features.SmallFeatureXGB(fold=fold),
+            rf_keras.SiameseModel(fold=fold),
+            rf_keras.ReaderModel(fold=fold),
+            rf_naive_bayes.RF_NaiveBayes(fold=fold)
         ]
 
     def make_path(self, fname):

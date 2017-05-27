@@ -53,6 +53,7 @@ class FoldDependent(luigi.Task):
         raise NotImplementedError
 
     def load(self, name, as_df=False):
+        assert name in {'valid', 'test'}
         res = self._load(name, as_df)
         if as_df:
             nose.tools.assert_is_instance(res, pandas.DataFrame)

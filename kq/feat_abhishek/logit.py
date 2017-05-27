@@ -47,7 +47,7 @@ class LogitClassifier(FoldDependent, HyperTuneable):
     def train(self):
         self.output().makedirs()
         preproc = pipeline.Pipeline([
-            ('norm', preprocessing.MinMaxScaler(feature_range=(-1, 1))),
+            ('norm', preprocessing.Normalizer()),
             ('poly', preprocessing.PolynomialFeatures(self.npoly.get()))
         ])
 

@@ -27,6 +27,7 @@ distances = [
 
 __all__ = ['VectorSpaceTask']
 
+
 class VectorSpaceTask(FoldIndependent):
     include_space = luigi.BoolParameter()
 
@@ -71,7 +72,7 @@ class VectorSpaceTask(FoldIndependent):
         k1 = [self.kvecs[w.lower()] for w in self.tokenzier.tokenize(q1) if w.lower() in self.kvecs]
         k2 = [self.kvecs[w.lower()] for w in self.tokenzier.tokenize(q2) if w.lower() in self.kvecs]
         if len(k1) == 0 or len(k2) == 0:
-            return np.ones(300+len(distances)) * 1000
+            return np.ones(300 + len(distances)) * 1000
 
         v1 = np.mean(k1, 0)
         v2 = np.mean(k2, 0)
