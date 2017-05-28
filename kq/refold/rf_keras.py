@@ -21,7 +21,7 @@ class Clipping(base.BaseEstimator, base.TransformerMixin):
         self.lower = lower
 
     def fit(self, X):
-        pass
+        return self
 
     def transform(self, X):
         return X.clip(self.lower, self.upper)
@@ -49,9 +49,7 @@ class SequenceTask(FoldDependent):
     def run(self):
         self.output().makedirs()
         batch_size = 128
-        normalizer = pipeline.Pipeline([
-            ('normalize', preprocessing.Normalizer()),
-            ('truncate', Clipping(-10, 10))])
+        normalizer = preprocessing.StandardScaler()
 
         train_q1, train_q2, train_other = rf_seq_data.RFWordSequenceDataset().load('train', fold=self.fold)
         train_other = normalizer.fit_transform(train_other)

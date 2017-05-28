@@ -162,14 +162,14 @@ class SmallFeatureXGB(RF_SKLearn):
     max_depth = hyper_helper.TuneableHyperparam(
         'SmallFeatureXGB.max_depth',
         prior=hyperopt.hp.randint('SmallFeatureXGB.max_depth', 11),
-        default=8,
+        default=6,
         transform=lambda v: v + 1,
         disable=False)
 
     learning_rate = hyper_helper.TuneableHyperparam(
         'SmallFeatureXGB.learning_rate',
         prior=hyperopt.hp.normal('SmallFeatureXGB.learning_rate', 0, 0.25),
-        default=-0.26776551679694416,
+        default=.02,
         transform=np.abs,
         disable=False)
 

@@ -40,8 +40,8 @@ class VectorSpaceTask(FoldIndependent):
 
     def _load_test(self, as_df):
         res = kq.core.fillna(np.load(self.make_path('test.npz'))['data'], 9999).clip(-10000, 10000)
-        if self.include_space:
-            res = res[:len(distances)]
+        if not self.include_space:
+            res = res[:, :len(distances)]
             cols = self.colnames()[:len(distances)]
         else:
             cols = self.colnames()
@@ -53,8 +53,8 @@ class VectorSpaceTask(FoldIndependent):
     def _load(self, as_df):
         assert not as_df
         res = kq.core.fillna(np.load(self.make_path('train.npz'))['data'], 9999).clip(-10000, 10000)
-        if self.include_space:
-            res = res[:len(distances)]
+        if not self.include_space:
+            res = res[:, :len(distances)]
             cols = self.colnames()[:len(distances)]
         else:
             cols = self.colnames()

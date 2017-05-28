@@ -13,7 +13,7 @@ from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
 from kq.refold import rf_dataset, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn, \
-    rf_small_features, rf_keras, rf_naive_bayes
+    rf_small_features, rf_keras, rf_naive_bayes, rf_leaky
 
 
 class Stacker(luigi.Task, HyperTuneable):
@@ -44,9 +44,11 @@ class Stacker(luigi.Task, HyperTuneable):
             rf_small_features.SmallFeatureLogit(fold=fold),
             rf_small_features.SmallFeatureLGB(fold=fold),
             rf_small_features.SmallFeatureXGB(fold=fold),
-            #rf_keras.SiameseModel(fold=fold),
+            rf_keras.SiameseModel(fold=fold),
             rf_keras.ReaderModel(fold=fold),
-            rf_naive_bayes.RF_NaiveBayes(fold=fold)
+            rf_naive_bayes.RF_NaiveBayes(fold=fold),
+            rf_leaky.RFLeakingModel(fold=fold),
+            rf_leaky.RFLeakingModel_XTC(fold=fold),
         ]
 
     def make_path(self, fname):

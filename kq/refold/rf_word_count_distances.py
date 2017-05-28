@@ -54,7 +54,7 @@ class WordCountDistances(FoldIndependent):
         return res, folds
 
     def _load_test(self, as_df):
-        res = np.load(self.output().path)['train_distances']
+        res = np.load(self.output().path)['test_distances']
         if as_df:
             res = pandas.DataFrame(res, columns=['cosine', 'dice', 'hamming', 'kulsinski'])
         return res

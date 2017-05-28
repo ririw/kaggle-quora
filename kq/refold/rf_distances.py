@@ -195,7 +195,6 @@ class RFDistanceCalculator(FoldIndependent):
             dist = [fn(q1, q2, t1, t2) for q1, q2, t1, t2 in
                     tqdm(zip(all_q1, all_q2, all_t1, all_t2), total=len(all_q1), desc=name)]
             if isinstance(dist[0], dict):
-                import ipdb; ipdb.set_trace()
                 frame = pandas.DataFrame.from_dict(dist, orient='columns')
                 for col in frame:
                     all_df[name + '_' + col] = frame[col]
@@ -208,9 +207,11 @@ class RFDistanceCalculator(FoldIndependent):
         train_dists.to_msgpack(_train_loc)
         test_dists.to_msgpack(_test_loc)
 
-        little_cls = ensemble.GradientBoostingClassifier(n_estimators=50)
-        little_cls.fit(train_dists.values, rf_dataset.Dataset().load_all('train', as_df=True).is_duplicate.values)
-        print(pandas.Series(little_cls.feature_importances_, train_dists.columns))
+        little_cls = ensemble.ExtraTreesClassifier(n_estimators=200, n_jobs=-1)
+        little_cls.fit(train_dists.clip(-10000, 10000).values,
+                       rf_dataset.Dataset().load_all('train', as_df=True).is_duplicate.values)
+        print(pandas.Series(little_cls.feature_importances_, train_dists.columns).sort_values())
+
         with self.output().open('w') as f:
-            f.write(str(pandas.Series(little_cls.feature_importances_, train_dists.columns)))
+            f.write(str(pandas.Series(little_cls.feature_importances_, train_dists.columns).sort_values()))
             f.write("\n")
