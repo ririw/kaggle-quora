@@ -138,9 +138,9 @@ class WC_XGB(WCSklearn):
 
 class WC_XTC(WCSklearn):
     min_leaf_samples = hyper_helper.TuneableHyperparam(
-        name='WordCountXTC_min_leaf_samples',
-        prior=hyperopt.hp.randint('WordCountXTC_min_leaf_samples', 20),
-        default=2,
+        name='WC_XTC_min_leaf_samples',
+        prior=hyperopt.hp.randint('WC_XTC_min_leaf_samples', 20),
+        default=12,
         transform=lambda v: (v + 1) * 5
     )
 

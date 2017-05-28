@@ -1,12 +1,12 @@
-import os
-
 import keras
 import luigi
 import numpy as np
+import os
 import pandas
-from plumbum import colors
-import nose.tools
+import sklearn
 import tensorflow as tf
+from plumbum import colors
+from sklearn import preprocessing, pipeline, base
 
 from kq.core import dictweights, score_data
 from kq.feat_abhishek import FoldDependent
@@ -14,6 +14,17 @@ from kq.refold import rf_seq_data, rf_dataset, BaseTargetBuilder
 
 __all__ = ['ReaderModel', 'SiameseModel', 'SequenceTask', 'TestModel']
 
+
+class Clipping(base.BaseEstimator, base.TransformerMixin):
+    def __init__(self, lower, upper):
+        self.upper = upper
+        self.lower = lower
+
+    def fit(self, X):
+        pass
+
+    def transform(self, X):
+        return X.clip(self.lower, self.upper)
 
 class SequenceTask(FoldDependent):
     def model(self, embedding_mat, seq_len, otherdata_size) -> keras.models.Model:
@@ -37,8 +48,13 @@ class SequenceTask(FoldDependent):
 
     def run(self):
         self.output().makedirs()
-        batch_size = 64
+        batch_size = 128
+        normalizer = pipeline.Pipeline([
+            ('normalize', preprocessing.Normalizer()),
+            ('truncate', Clipping(-10, 10))])
+
         train_q1, train_q2, train_other = rf_seq_data.RFWordSequenceDataset().load('train', fold=self.fold)
+        train_other = normalizer.fit_transform(train_other)
         train_labels = rf_dataset.Dataset().load('train', fold=self.fold, as_df=True).is_duplicate
         print(train_q1.shape, train_q2.shape, train_other.shape)
         embedding = rf_seq_data.RFWordSequenceDataset().load_embedding_mat()
@@ -50,17 +66,7 @@ class SequenceTask(FoldDependent):
         model_path = self.make_path('model.h5')
         model_checkpointer = keras.callbacks.ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True)
 
-        train_data = [
-            np.vstack([train_q1, train_q2]),
-            np.vstack([train_q2, train_q1]),
-            np.vstack([train_other, train_other]),
-        ]
-        train_labels = np.concatenate([train_labels, train_labels])
-
-        nose.tools.assert_equal(train_q1.shape[0], train_q2.shape[0])
-        nose.tools.assert_equal(train_data[0].shape[0], train_labels.shape[0])
-        nose.tools.assert_equal(train_data[1].shape[0], train_labels.shape[0])
-        nose.tools.assert_equal(train_data[2].shape[0], train_labels.shape[0])
+        train_data = [train_q1, train_q2, train_other]
 
         model.fit(
            train_data, train_labels,
@@ -71,27 +77,18 @@ class SequenceTask(FoldDependent):
         model.load_weights(model_path)
 
         valid_q1, valid_q2, valid_other = rf_seq_data.RFWordSequenceDataset().load('valid', fold=self.fold)
-        train_labels = rf_dataset.Dataset().load('valid', fold=self.fold, as_df=True).is_duplicate
-        valid_data = [
-            np.vstack([valid_q1, valid_q2]),
-            np.vstack([valid_q2, valid_q1]),
-            np.vstack([valid_other, valid_other]),
-        ]
-        valid_preds = model.predict(valid_data, verbose=1).clip(0.0000001, 0.9999999)
-        valid_preds = (valid_preds[:valid_q1.shape[0]] + valid_preds[valid_q1.shape[0]:]) / 2
-        score = score_data(train_labels, valid_preds)
+        valid_other = normalizer.transform(valid_other)
+        valid_labels = rf_dataset.Dataset().load('valid', fold=self.fold, as_df=True).is_duplicate
+        valid_data = [valid_q1, valid_q2, valid_other]
+        valid_preds = model.predict(valid_data, verbose=1, batch_size=batch_size)
 
+        score = score_data(valid_labels, valid_preds)
         print(colors.green | "Score for {:s}: {:f}".format(repr(self), score))
-        score2 = score_data(train_labels[:valid_q1.shape[0]], valid_preds[:valid_q1.shape[0]])
-        print(colors.green | "Score simple for {:s}: {:f}".format(repr(self), score2))
+
         test_q1, test_q2, test_other = rf_seq_data.RFWordSequenceDataset().load('test', None)
-        test_data = [
-            np.vstack([test_q1, test_q2]),
-            np.vstack([test_q2, test_q1]),
-            np.vstack([test_other, test_other]),
-        ]
-        test_preds = model.predict(test_data, verbose=1).clip(0.0000001, 0.9999999)
-        test_preds = (test_preds[:test_q1.shape[0]] + test_preds[test_q1.shape[0]:]) / 2
+        test_other = normalizer.transform(test_other)
+        test_data = [test_q1, test_q2, test_other]
+        test_preds = model.predict(test_data, verbose=1, batch_size=batch_size)
 
         np.savez_compressed(self.make_path('done_tmp.npz'), valid=valid_preds, test=test_preds)
         os.rename(self.make_path('done_tmp.npz'), self.output().path)
@@ -171,21 +168,18 @@ class SiameseModel(SequenceTask):
         distance_input = keras.layers.Input(shape=[otherdata_size])
         di = keras.layers.Dense(num_dense, activation='relu')(distance_input)
         di = keras.layers.Dropout(num_lstm)(di)
-        di = keras.layers.BatchNormalization()(di)
 
         di = keras.layers.Dense(num_dense, activation='relu')(di)
-        di = keras.layers.Dropout(num_lstm)(di)
-        di = keras.layers.BatchNormalization()(di)
 
         merged = keras.layers.concatenate([x1, y1, di])
         merged = keras.layers.Dropout(rate_drop_dense)(merged)
-        merged = keras.layers.BatchNormalization()(merged)
-
         merged = keras.layers.Dense(num_dense, activation='relu')(merged)
         merged = keras.layers.Dropout(rate_drop_dense)(merged)
-        merged = keras.layers.BatchNormalization()(merged)
+        merged = keras.layers.Dense(num_dense//2, activation='relu')(merged)
 
         preds = keras.layers.Dense(1, activation='sigmoid')(merged)
+        preds = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-10, 1-1e-10))(preds)
+
         model = keras.models.Model(inputs=[sequence_1_input, sequence_2_input, distance_input], outputs=preds)
         model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
 
@@ -237,6 +231,7 @@ class ReaderModel(SequenceTask):
         merged = keras.layers.BatchNormalization()(merged)
 
         merged = keras.layers.Dense(1, activation='sigmoid')(merged)
+        merged = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-10, 1-1e-10))(merged)
 
         model = keras.models.Model([sequence_1_input, sequence_2_input, distance_input], merged)
         model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])

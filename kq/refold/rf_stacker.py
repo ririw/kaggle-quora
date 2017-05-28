@@ -1,14 +1,13 @@
 import gzip
 
 import hyperopt
-import lightgbm
-import numpy as np
 import luigi
-import pandas
+import nose.tools
+import numpy as np
 import os
+import pandas
 from plumbum import colors
 from sklearn import linear_model, preprocessing
-import nose.tools
 
 from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
@@ -45,7 +44,7 @@ class Stacker(luigi.Task, HyperTuneable):
             rf_small_features.SmallFeatureLogit(fold=fold),
             rf_small_features.SmallFeatureLGB(fold=fold),
             rf_small_features.SmallFeatureXGB(fold=fold),
-            rf_keras.SiameseModel(fold=fold),
+            #rf_keras.SiameseModel(fold=fold),
             rf_keras.ReaderModel(fold=fold),
             rf_naive_bayes.RF_NaiveBayes(fold=fold)
         ]
@@ -83,7 +82,6 @@ class Stacker(luigi.Task, HyperTuneable):
 
         train_X = poly.fit_transform(pandas.concat(train_Xs, 0).values)
         train_y = np.concatenate(train_ys, 0).squeeze()
-
 
         cls = linear_model.LogisticRegression(class_weight=core.dictweights)
         cls.fit(train_X, train_y)

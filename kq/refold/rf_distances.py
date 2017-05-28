@@ -1,12 +1,16 @@
 import multiprocessing
+from sklearn import ensemble
 
 import distance
 import gensim
+import jellyfish
 import luigi
+import numpy as np
 import pandas
 from nltk.stem import snowball
 from nltk.tokenize import treebank
 from tqdm import tqdm
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from kq.feat_abhishek import FoldIndependent
 from kq.refold import BaseTargetBuilder, rf_dataset
@@ -14,13 +18,15 @@ from kq.utils import w2v_file
 
 __all__ = ['RFDistanceCalculator']
 
-
 _independent_transformers = {}
+
+
 def register_indep_transform(name):
     def inner(fn):
         global _independent_transformers
         _independent_transformers[name] = fn
         return fn
+
     return inner
 
 
@@ -73,13 +79,35 @@ def len_letter_distance(q1, q2, t1, t2):
 def len_tok_distance(q1, q2, t1, t2):
     return abs(len(t1) - len(t2))
 
+@register_indep_transform('jaro')
+def len_tok_distance(q1, q2, t1, t2):
+    return 1 - jellyfish.jaro_distance(q1, q2)
+
+@register_indep_transform('jaro')
+def len_tok_distance(q1, q2, t1, t2):
+    return jellyfish.jaro_distance(q1, q2)
 
 class WordMoverDistance:
     def __init__(self):
         self.kvecs = gensim.models.KeyedVectors.load_word2vec_format(w2v_file)
 
     def __call__(self, q1, q2, t1, t2):
-        self.kvecs.wmdistance(q1, q2)
+        return self.kvecs.wmdistance(q1, q2)
+
+
+class SentimentDifference:
+    def __init__(self):
+        self.analyzer = SentimentIntensityAnalyzer()
+
+    def __call__(self, q1, q2, t1, t2):
+        res = np.zeros(4)
+        sents1 = self.analyzer.polarity_scores(q1)
+        sents2 = self.analyzer.polarity_scores(q2)
+        res[0] = sents1['neg'] - sents2['neg']
+        res[1] = sents1['neu'] - sents2['neu']
+        res[2] = sents1['pos'] - sents2['pos']
+        res[3] = sents1['compound'] - sents2['compound']
+        return np.abs(res)
 
 
 _train_loc = BaseTargetBuilder('rf_distance', 'train.msg').get()
@@ -90,12 +118,18 @@ def transform(item):
     q1, q2, t1, t2 = item
     res = {}
     for name, transform in _independent_transformers.items():
-        res[name] = transform(q1, q2, t1, t2)
+        r = transform(q1, q2, t1, t2)
+        try:
+            for ix, v in enumerate(r):
+                res['{:s}_{:d}'.format(name, ix)] = v
+        except TypeError:
+            res[name] = r
     return res
 
 
 class RFDistanceCalculator(FoldIndependent):
     resources = {'cpu': 7}
+
     def requires(self):
         yield rf_dataset.Dataset()
 
@@ -139,7 +173,6 @@ class RFDistanceCalculator(FoldIndependent):
         all_t2 = list(tqdm(multiprocessing.Pool().imap(self.tokenize, all_q2, chunksize=10000),
                            total=len(all_q2), desc='Tokenizing: 2'))
 
-
         all_indep_dists = list(tqdm(
             multiprocessing.Pool().imap(transform, zip(all_q1, all_q2, all_t1, all_t2), chunksize=10000),
             total=len(all_q1),
@@ -162,5 +195,9 @@ class RFDistanceCalculator(FoldIndependent):
         train_dists.to_msgpack(_train_loc)
         test_dists.to_msgpack(_test_loc)
 
-        with self.output().open('w'):
-            pass
+        little_cls = ensemble.GradientBoostingClassifier(n_estimators=50)
+        little_cls.fit(train_dists.values, rf_dataset.Dataset().load('train', as_df=True).is_duplicate.values)
+        print(pandas.Series(little_cls.feature_importances_, train_dists.columns))
+        with self.output().open('w') as f:
+            f.write(str(pandas.Series(little_cls.feature_importances_, train_dists.columns)))
+            f.write("\n")

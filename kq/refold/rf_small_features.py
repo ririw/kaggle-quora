@@ -8,7 +8,7 @@ import lightgbm.sklearn
 from kq import core
 from kq.feat_abhishek import FoldIndependent, hyper_helper
 from kq.refold import rf_dataset, rf_decomposition, rf_distances, rf_vectorspaces, BaseTargetBuilder, \
-    AutoExitingGBMLike, rf_magic_features
+    AutoExitingGBMLike, rf_magic_features, rf_word_count_features, rf_word_count_distances
 from kq.refold.rf_sklearn import RF_SKLearn
 
 __all__ = ['SmallFeatureLogit', 'SmallFeatureXTC', 'SmallFeatureLGB']
@@ -45,6 +45,7 @@ class SmallFeaturesTask(FoldIndependent):
 
     def requires(self):
         yield rf_decomposition.AllDecompositions()
+        yield rf_word_count_distances.WordCountDistances()
         yield rf_distances.RFDistanceCalculator()
         yield rf_vectorspaces.VectorSpaceTask(include_space=False)
         yield rf_magic_features.QuestionFrequency()
