@@ -100,14 +100,18 @@ class SentimentDifference:
         self.analyzer = SentimentIntensityAnalyzer()
 
     def __call__(self, q1, q2, t1, t2):
-        res = np.zeros(4)
         sents1 = self.analyzer.polarity_scores(q1)
         sents2 = self.analyzer.polarity_scores(q2)
-        res[0] = sents1['neg'] - sents2['neg']
-        res[1] = sents1['neu'] - sents2['neu']
-        res[2] = sents1['pos'] - sents2['pos']
-        res[3] = sents1['compound'] - sents2['compound']
-        return np.abs(res)
+        neg = sents1['neg'] - sents2['neg']
+        neu = sents1['neu'] - sents2['neu']
+        pos = sents1['pos'] - sents2['pos']
+        compound = sents1['compound'] - sents2['compound']
+        return {
+            'neg': neg,
+            'neu': neu,
+            'pos': pos,
+            'compound': compound,
+        }
 
 
 _train_loc = BaseTargetBuilder('rf_distance', 'train.msg').get()
@@ -119,10 +123,10 @@ def transform(item):
     res = {}
     for name, transform in _independent_transformers.items():
         r = transform(q1, q2, t1, t2)
-        try:
-            for ix, v in enumerate(r):
-                res['{:s}_{:d}'.format(name, ix)] = v
-        except TypeError:
+        if isinstance(r, dict):
+            for k, v in r.items():
+                res['{:s}_{:s}'.format(name, k)] = v
+        else:
             res[name] = r
     return res
 
@@ -166,28 +170,37 @@ class RFDistanceCalculator(FoldIndependent):
 
         all_data = pandas.concat([train_data, test_data], 0)
         all_q1 = list(all_data['question1_clean'])
-        all_t1 = list(tqdm(multiprocessing.Pool().imap(self.tokenize, all_q1, chunksize=10000),
+        all_t1 = list(tqdm(multiprocessing.Pool().imap(self.tokenize, all_q1, chunksize=5000),
                            total=len(all_q1), desc='Tokenizing: 1'))
 
         all_q2 = list(all_data['question2_clean'])
-        all_t2 = list(tqdm(multiprocessing.Pool().imap(self.tokenize, all_q2, chunksize=10000),
+        all_t2 = list(tqdm(multiprocessing.Pool().imap(self.tokenize, all_q2, chunksize=5000),
                            total=len(all_q2), desc='Tokenizing: 2'))
 
         all_indep_dists = list(tqdm(
-            multiprocessing.Pool().imap(transform, zip(all_q1, all_q2, all_t1, all_t2), chunksize=10000),
+            multiprocessing.Pool().imap(transform, zip(all_q1, all_q2, all_t1, all_t2), chunksize=5000),
             total=len(all_q1),
             desc='Computing distances'
         ))
         all_df = pandas.DataFrame(all_indep_dists)
 
-        print('Loading...')
-        dependent_transformers = {'word_mover': WordMoverDistance()}
-        print('Finished!')
+        print('Loading dependent transforms')
+        dependent_transformers = {
+            'word_mover': WordMoverDistance(),
+            'sentiment': SentimentDifference()
+        }
+        print('Finished loading!')
 
         for name, fn in dependent_transformers.items():
             dist = [fn(q1, q2, t1, t2) for q1, q2, t1, t2 in
                     tqdm(zip(all_q1, all_q2, all_t1, all_t2), total=len(all_q1), desc=name)]
-            all_df[name] = dist
+            if isinstance(dist[0], dict):
+                import ipdb; ipdb.set_trace()
+                frame = pandas.DataFrame.from_dict(dist, orient='columns')
+                for col in frame:
+                    all_df[name + '_' + col] = frame[col]
+            else:
+                all_df[name] = dist
 
         self.output().makedirs()
         train_dists = all_df.iloc[:train_data.shape[0]]
@@ -196,7 +209,7 @@ class RFDistanceCalculator(FoldIndependent):
         test_dists.to_msgpack(_test_loc)
 
         little_cls = ensemble.GradientBoostingClassifier(n_estimators=50)
-        little_cls.fit(train_dists.values, rf_dataset.Dataset().load('train', as_df=True).is_duplicate.values)
+        little_cls.fit(train_dists.values, rf_dataset.Dataset().load_all('train', as_df=True).is_duplicate.values)
         print(pandas.Series(little_cls.feature_importances_, train_dists.columns))
         with self.output().open('w') as f:
             f.write(str(pandas.Series(little_cls.feature_importances_, train_dists.columns)))
