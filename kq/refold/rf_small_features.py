@@ -2,13 +2,14 @@ import hyperopt
 import pandas
 import nose.tools
 import numpy as np
+from plumbum import colors
 from sklearn import pipeline, preprocessing, linear_model, ensemble
 import lightgbm.sklearn
 
 from kq import core
 from kq.feat_abhishek import FoldIndependent, hyper_helper
 from kq.refold import rf_dataset, rf_decomposition, rf_distances, rf_vectorspaces, BaseTargetBuilder, \
-    AutoExitingGBMLike, rf_magic_features, rf_word_count_features, rf_word_count_distances
+    AutoExitingGBMLike, rf_magic_features, rf_word_count_features, rf_word_count_distances, rf_leaky, rf_pos_distances
 from kq.refold.rf_sklearn import RF_SKLearn
 
 __all__ = ['SmallFeatureLogit', 'SmallFeatureXTC', 'SmallFeatureLGB']
@@ -17,13 +18,22 @@ __all__ = ['SmallFeatureLogit', 'SmallFeatureXTC', 'SmallFeatureLGB']
 class SmallFeaturesTask(FoldIndependent):
     def _load_test(self, as_df):
         Xs = []
+        n_vs = None
         for r in self.requires():
             x = r.load_all('test', as_df)
+            if n_vs is None:
+                n_vs = x.shape[0]
+            else:
+                nose.tools.assert_equal(n_vs, x.shape[0], repr(r))
+            if as_df:
+                x.columns = [r.__class__.__name__ + '_' + c for c in x.columns]
             Xs.append(x)
         if as_df:
-            return pandas.concat(Xs, 1)
+            return pandas.concat(Xs, 1).reset_index(drop=True).fillna(999).clip(-1000, 1000)
         else:
-            return np.concatenate(Xs, 1)
+            r = np.concatenate(Xs, 1)
+            r[np.isnan(r)] = 999
+            return np.clip(r, -1000, 1000)
 
     def _load(self, as_df):
         Xs = []
@@ -35,13 +45,20 @@ class SmallFeaturesTask(FoldIndependent):
                 n_vs = x.shape[0]
             else:
                 nose.tools.assert_equal(n_vs, x.shape[0], repr(r))
+            if as_df:
+                nose.tools.assert_is_instance(x, pandas.DataFrame, repr(r))
+                x.columns = [r.__class__.__name__ + '_' + c for c in x.columns]
+                x = x.fillna(999).clip(-1000, 1000)
             Xs.append(x)
 
         folds = rf_dataset.Dataset().load_dataset_folds()
         if as_df:
-            return pandas.concat(Xs, 1), folds
+            res = pandas.concat(Xs, 1).reset_index(drop=True)
+            return res, folds
         else:
-            return np.concatenate(Xs, 1), folds
+            res = np.concatenate(Xs, 1)
+            res[np.isnan(res)] = 999
+            return np.clip(res, -1000, 1000), folds
 
     def requires(self):
         yield rf_decomposition.AllDecompositions()
@@ -51,6 +68,8 @@ class SmallFeaturesTask(FoldIndependent):
         yield rf_magic_features.QuestionFrequency()
         yield rf_magic_features.NeighbourhoodFeature()
         yield rf_magic_features.QuestionOrderFeature()
+        yield rf_leaky.RF_LeakyXGB_Dataset()
+        yield rf_pos_distances.RF_POS_Distance()
 
     def complete(self):
         for req in self.requires():
@@ -99,10 +118,15 @@ class SmallFeatureXTC(RF_SKLearn):
 
     def make_cls(self):
         return ensemble.ExtraTreesClassifier(
-            n_estimators=500,
+            n_estimators=512,
             n_jobs=-1,
             min_samples_leaf=self.min_items.get(),
             class_weight=core.dictweights)
+
+    def post_fit(self, cls):
+        xs = SmallFeaturesTask().load('train', 0, as_df=True)
+        series = pandas.Series(cls.feature_importances_, index=xs.columns)
+        print(colors.yellow | str(series))
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
@@ -127,8 +151,13 @@ class SmallFeatureLGB(RF_SKLearn):
     learning_rate = hyper_helper.TuneableHyperparam(
         'SmallFeatureLGB.learning_rate',
         prior=hyperopt.hp.uniform('SmallFeatureLGB.learning_rate', 0, 0.4),
-        default=0.10293737153579499,
+        default=0.02,
         disable=False)
+
+    def post_fit(self, cls):
+        xs = SmallFeaturesTask().load('train', 0, as_df=True)
+        series = pandas.Series(cls.feature_importances_, index=xs.columns).sort_values(ascending=False)[:20]
+        print(colors.yellow | str(series))
 
     def xdataset(self) -> FoldIndependent:
         return SmallFeaturesTask()
@@ -136,7 +165,7 @@ class SmallFeatureLGB(RF_SKLearn):
     def make_cls(self):
         return AutoExitingGBMLike(
             lightgbm.sklearn.LGBMClassifier(
-                n_estimators=2048,
+                n_estimators=1024,
                 num_leaves=1024,
                 min_child_samples=self.min_items.get(),
                 learning_rate=self.learning_rate.get()

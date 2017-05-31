@@ -34,6 +34,9 @@ class RF_SKLearn(FoldDependent):
     def output(self):
         return luigi.LocalTarget(self.make_path('done'))
 
+    def post_fit(self, cls):
+        pass
+
     def run(self):
         self.output().makedirs()
         data = self.xdataset()
@@ -44,6 +47,8 @@ class RF_SKLearn(FoldDependent):
         cls = self.make_cls()
         print('Training classifier {:s} on data of size: {}'.format(repr(cls), X.shape))
         cls.fit(X, y)
+
+        self.post_fit(cls)
 
         X_val = data.load('valid', self.fold)
         y_val = rf_dataset.Dataset().load('valid', self.fold, as_df=True).is_duplicate

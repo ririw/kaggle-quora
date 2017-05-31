@@ -51,7 +51,6 @@ class VectorSpaceTask(FoldIndependent):
         return res
 
     def _load(self, as_df):
-        assert not as_df
         res = kq.core.fillna(np.load(self.make_path('train.npz'))['data'], 9999).clip(-10000, 10000)
         if not self.include_space:
             res = res[:, :len(distances)]

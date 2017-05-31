@@ -180,4 +180,4 @@ class AllDecompositions(FoldIndependent):
         return decomps, folds
 
     def wangjangle_columns(self, data, req):
-        data.cols = [req.__class__.__name__ + c for c in data.cols]
+        data.cols = [req.__class__.__name__ + c for c in data.columns]

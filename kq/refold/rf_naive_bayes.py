@@ -19,6 +19,7 @@ class RF_NaiveBayes(FoldDependent):
         res = np.load(self.make_path('done.npz'))[name]
         if as_df:
             res = pandas.Series(res, name=repr(self))
+
         return res
 
     def make_path(self, fname):

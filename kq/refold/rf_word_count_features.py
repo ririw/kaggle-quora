@@ -5,6 +5,7 @@ import pickle
 import luigi
 import numpy as np
 import scipy.io
+import nose.tools
 import scipy.sparse as sp
 from nltk.stem import snowball
 from nltk.tokenize import treebank
@@ -85,6 +86,11 @@ class WordCountMatrix(FoldIndependent):
         train_q2s = q2s[:train_data.shape[0]]
         test_q1s = q1s[train_data.shape[0]:]
         test_q2s = q2s[train_data.shape[0]:]
+        nose.tools.assert_equal(test_q1s.shape[0], test_data.shape[0])
+        nose.tools.assert_equal(test_q2s.shape[0], test_data.shape[0])
+        nose.tools.assert_equal(train_q1s.shape[0], train_data.shape[0])
+        nose.tools.assert_equal(train_q2s.shape[0], train_data.shape[0])
+
         self.write_mat_to(self.make_path('train_q1.pkl'), train_q1s)
         self.write_mat_to(self.make_path('train_q2.pkl'), train_q2s)
         self.write_mat_to(self.make_path('test_q1.pkl'), test_q1s)
@@ -94,8 +100,8 @@ class WordCountMatrix(FoldIndependent):
 
         train_vecs = diffs[:train_data.shape[0]]
         test_vecs = diffs[train_data.shape[0]:]
-        assert train_vecs.shape[0] == train_data.shape[0]
-        assert test_vecs.shape[0] == test_data.shape[0]
+        nose.tools.assert_equal(train_vecs.shape[0], train_data.shape[0])
+        nose.tools.assert_equal(test_vecs.shape[0], test_data.shape[0])
 
         self.write_mat_to(self.make_path('train_mat.pkl'), train_vecs)
         self.write_mat_to(self.make_path('test_mat.pkl'), test_vecs)

@@ -74,7 +74,7 @@ class RFWordSequenceDataset(FoldIndependent):
         self.output().makedirs()
         kvecs = gensim.models.KeyedVectors.load_word2vec_format(w2v_file)
         train_dataset = rf_dataset.Dataset().load_all('train', as_df=True)
-        test_dataset = rf_dataset.Dataset().load_all('train', as_df=True)
+        test_dataset = rf_dataset.Dataset().load_all('test', as_df=True)
         self.tokenzier = treebank.TreebankWordTokenizer()
 
         all_words = pandas.concat([

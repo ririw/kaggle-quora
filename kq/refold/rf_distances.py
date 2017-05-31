@@ -79,13 +79,16 @@ def len_letter_distance(q1, q2, t1, t2):
 def len_tok_distance(q1, q2, t1, t2):
     return abs(len(t1) - len(t2))
 
+
 @register_indep_transform('jaro')
 def len_tok_distance(q1, q2, t1, t2):
     return 1 - jellyfish.jaro_distance(q1, q2)
 
+
 @register_indep_transform('jaro')
 def len_tok_distance(q1, q2, t1, t2):
     return jellyfish.jaro_distance(q1, q2)
+
 
 class WordMoverDistance:
     def __init__(self):
@@ -147,7 +150,7 @@ class RFDistanceCalculator(FoldIndependent):
     def _load(self, as_df):
         folds = rf_dataset.Dataset().load_dataset_folds()
         features = pandas.read_msgpack(_train_loc).fillna(9999).clip(-10000, 10000)
-        if as_df:
+        if not as_df:
             features = features.values
         return features, folds
 

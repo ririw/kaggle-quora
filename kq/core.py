@@ -38,7 +38,7 @@ def weight_from(y):
     return weights[y]
 
 
-def score_data(y_true, y_pred):
+def score_data(y_true, y_pred, weighted=True):
     global weights
     y_pred = np.asarray(y_pred)
     if len(y_pred.shape) == 2:
@@ -51,7 +51,10 @@ def score_data(y_true, y_pred):
 
     nose.tools.assert_equal(y_true.shape, y_pred.shape)
     weights = weights[y_true]
-    loss = sklearn.metrics.log_loss(y_true, y_pred, sample_weight=weights)
+    if weighted:
+        loss = sklearn.metrics.log_loss(y_true, y_pred, sample_weight=weights)
+    else:
+        loss = sklearn.metrics.log_loss(y_true, y_pred)
 
     return loss
 

@@ -18,7 +18,7 @@ from kq.refold import rf_dataset, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklear
 
 class Stacker(luigi.Task, HyperTuneable):
     npoly = TuneableHyperparam(
-        "Stacker_npoly", hyperopt.hp.randint('Stacker_npoly', 3), 2, transform=lambda x: x+1)
+        "Stacker_npoly", hyperopt.hp.randint('Stacker_npoly', 3), 1, transform=lambda x: x+1)
 
     def requires(self):
         yield rf_dataset.Dataset()
@@ -44,11 +44,11 @@ class Stacker(luigi.Task, HyperTuneable):
             rf_small_features.SmallFeatureLogit(fold=fold),
             rf_small_features.SmallFeatureLGB(fold=fold),
             rf_small_features.SmallFeatureXGB(fold=fold),
-            rf_keras.SiameseModel(fold=fold),
-            rf_keras.ReaderModel(fold=fold),
+            #rf_keras.SiameseModel(fold=fold),
+            #rf_keras.ReaderModel(fold=fold),
             rf_naive_bayes.RF_NaiveBayes(fold=fold),
-            rf_leaky.RFLeakingModel(fold=fold),
-            rf_leaky.RFLeakingModel_XTC(fold=fold),
+            rf_leaky.RFLeakingModel_XGB(fold=fold),
+            rf_leaky.RFLeakingModel_LGB(fold=fold),
         ]
 
     def make_path(self, fname):
@@ -62,7 +62,14 @@ class Stacker(luigi.Task, HyperTuneable):
         return luigi.LocalTarget(self.make_path('stacked_pred.csv.gz'))
 
     def fold_x(self, fold, dataset):
-        xs = [c.load(dataset) for c in self.classifiers(fold)]
+        xs = []
+        x_len = None
+        for c in self.classifiers(fold):
+            x = c.load(dataset)
+            if x_len is None:
+                x_len = x.shape[0]
+            nose.tools.assert_equal(x_len, x.shape[0], 'Shape mismatch for ' + repr(c))
+            xs.append(x)
         res = np.vstack(xs).T
         return pandas.DataFrame(res, columns=[c.__class__.__name__ for c in self.classifiers(fold)])
 
@@ -95,6 +102,8 @@ class Stacker(luigi.Task, HyperTuneable):
         return score, poly, cls
 
     def run(self):
+        #for c in self.classifiers(0):
+        #    print(repr(c), c.load('test', 0).shape)
         score, poly, cls = self.score()
 
         print(colors.green | colors.bold | (Stacker.__name__ + '::' + str(score)))

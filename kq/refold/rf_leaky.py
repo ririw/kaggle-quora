@@ -3,16 +3,19 @@ from collections import Counter
 from collections import defaultdict
 
 from plumbum import colors
-from sklearn import ensemble
+from sklearn import ensemble, model_selection
 
 import luigi
 import numpy as np
 import os
 import pandas
 import pandas as pd
+import nose.tools
 import xgboost as xgb
+import lightgbm.sklearn
 from nltk.corpus import stopwords
 
+from kq import core
 from kq.core import score_data
 from kq.feat_abhishek import FoldIndependent, FoldDependent
 from kq.refold import BaseTargetBuilder, rf_dataset
@@ -316,7 +319,7 @@ class RF_LeakyXGB_Dataset(FoldIndependent):
             pass
 
 
-class RFLeakingModel(FoldDependent):
+class RFLeakingModel_XGB(FoldDependent):
     resources = {'cpu': 7}
 
     def _load(self, name, as_df):
@@ -337,14 +340,31 @@ class RFLeakingModel(FoldDependent):
         return luigi.LocalTarget(self.make_path('done.npz'))
 
     def run(self):
+        # 0.131986896169
+        self.output().makedirs()
         X_train = RF_LeakyXGB_Dataset().load('train', self.fold, as_df=True)
         y_train = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
         X_valid = RF_LeakyXGB_Dataset().load('valid', self.fold, as_df=True)
         y_valid = rf_dataset.Dataset().load('valid', self.fold, as_df=True).is_duplicate
 
-        d_train = xgb.DMatrix(X_train, label=y_train)
+        pos_train = X_train[y_train == 1]
+        neg_train = X_train[y_train == 0]
+        X_train = pd.concat((neg_train, pos_train.iloc[:int(0.8 * len(pos_train))], neg_train))
+        y_train = np.array([0] * neg_train.shape[0] + [1] * pos_train.iloc[:int(0.8 * len(pos_train))].shape[0] + [0] * neg_train.shape[0])
+        del pos_train, neg_train
+
+        #pos_valid = X_valid[y_valid == 1]
+        #neg_valid = X_valid[y_valid == 0]
+        #X_valid = pd.concat((neg_valid, pos_valid.iloc[:int(0.8 * len(pos_valid))], neg_valid))
+        #y_valid = np.array(
+        #    [0] * neg_valid.shape[0] + [1] * pos_valid.iloc[:int(0.8 * len(pos_valid))].shape[0] + [0] * neg_valid.shape[0])
+        #del pos_valid, neg_valid
+        X_tr_tr, X_tr_es, y_tr_tr, y_tr_es = model_selection.train_test_split(X_train, y_train, test_size=0.05)
+
+        d_train = xgb.DMatrix(X_tr_tr, label=y_tr_tr)
+        d_es = xgb.DMatrix(X_tr_es, label=y_tr_es)
         d_valid = xgb.DMatrix(X_valid, label=y_valid)
-        watchlist = [(d_train, 'train'), (d_valid, 'valid')]
+        watchlist = [(d_train, 'train'), (d_es, 'd_es')]
 
         params = {}
         params['objective'] = 'binary:logistic'
@@ -354,14 +374,77 @@ class RFLeakingModel(FoldDependent):
         params['subsample'] = 0.6
         params['base_score'] = 0.2
 
-        bst = xgb.train(params, d_train, 2500, watchlist, early_stopping_rounds=50, verbose_eval=50)
+        #bst = xgb.train(params, d_train, 2500, watchlist, early_stopping_rounds=50, verbose_eval=50)
+        bst = xgb.train(params, d_train, 1000, watchlist, early_stopping_rounds=50, verbose_eval=50)
         p_valid = bst.predict(d_valid)
-        print(score_data(y_valid, p_valid))
+        print(score_data(y_valid, p_valid, weighted=False))
         X_test = RF_LeakyXGB_Dataset().load('test', None, as_df=True)
         d_test = xgb.DMatrix(X_test)
         p_test = bst.predict(d_test)
 
         np.savez_compressed(self.make_path('done_tmp.npz'), valid=p_valid, test=p_test)
+        os.rename(self.make_path('done_tmp.npz'), self.output().path)
+
+
+class RFLeakingModel_LGB(FoldDependent): # 0.147723
+    resources = {'cpu': 7}
+
+    def _load(self, name, as_df):
+        res = np.load(self.output().path)[name]
+        if as_df:
+            res = pandas.Series(res, name=repr(self))
+        return res
+
+    def requires(self):
+        yield RF_LeakyXGB_Dataset()
+        yield rf_dataset.Dataset()
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder('rf_leaky', 'lgb', str(self.fold))
+        return (base_path + fname).get()
+
+    def output(self):
+        return luigi.LocalTarget(self.make_path('done.npz'))
+
+    def run(self):
+        self.output().makedirs()
+        X_train = RF_LeakyXGB_Dataset().load('train', self.fold, as_df=True)
+        y_train = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
+        X_valid = RF_LeakyXGB_Dataset().load('valid', self.fold, as_df=True)
+        y_valid = rf_dataset.Dataset().load('valid', self.fold, as_df=True).is_duplicate
+
+        pos_train = X_train[y_train == 1]
+        neg_train = X_train[y_train == 0]
+        X_train = pd.concat((neg_train, pos_train.iloc[:int(0.8 * len(pos_train))], neg_train))
+        y_train = np.array([0] * neg_train.shape[0] + [1] * pos_train.iloc[:int(0.8 * len(pos_train))].shape[0] + [0] * neg_train.shape[0])
+        del pos_train, neg_train
+
+        #pos_valid = X_valid[y_valid == 1]
+        #neg_valid = X_valid[y_valid == 0]
+        #X_valid = pd.concat((neg_valid, pos_valid.iloc[:int(0.8 * len(pos_valid))], neg_valid))
+        #y_valid = np.array(
+        #    [0] * neg_valid.shape[0] + [1] * pos_valid.iloc[:int(0.8 * len(pos_valid))].shape[0] + [0] * neg_valid.shape[0])
+        #del pos_valid, neg_valid
+
+        cls = lightgbm.sklearn.LGBMClassifier(
+            #n_estimators=3500,
+            n_estimators=512,
+            num_leaves=256,
+            learning_rate=0.03,
+            subsample=0.75
+        )
+        X_tr_tr, X_tr_es, y_tr_tr, y_tr_es = model_selection.train_test_split(X_train, y_train, test_size=0.05)
+        cls.fit(X_tr_tr, y_tr_tr,
+                eval_set=[(X_tr_es, y_tr_es)],
+                early_stopping_rounds=50)
+        valid_pred = cls.predict_proba(X_valid)[:, 1]
+        print(colors.green | '{:s} == {:f}'.format(repr(self), score_data(y_valid, valid_pred, weighted=False)))
+        print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=X_train.columns).sort_values()))
+
+        X_test = RF_LeakyXGB_Dataset().load('test', None, as_df=True).fillna(-999).clip(-1000, 1000)
+        test_pred = cls.predict_proba(X_test)
+
+        np.savez_compressed(self.make_path('done_tmp.npz'), valid=valid_pred, test=test_pred)
         os.rename(self.make_path('done_tmp.npz'), self.output().path)
 
 
@@ -386,10 +469,24 @@ class RFLeakingModel_XTC(FoldDependent):
         return luigi.LocalTarget(self.make_path('done.npz'))
 
     def run(self):
-        X_train = RF_LeakyXGB_Dataset().load('train', self.fold, as_df=True).fillna(-999)
+        self.output().makedirs()
+        X_train = RF_LeakyXGB_Dataset().load('train', self.fold, as_df=True).fillna(-999).clip(-1000, 1000)
         y_train = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
-        X_valid = RF_LeakyXGB_Dataset().load('valid', self.fold, as_df=True).fillna(-999)
+        X_valid = RF_LeakyXGB_Dataset().load('valid', self.fold, as_df=True).fillna(-999).clip(-1000, 1000)
         y_valid = rf_dataset.Dataset().load('valid', self.fold, as_df=True).is_duplicate
+
+        pos_train = X_train[y_train == 1]
+        neg_train = X_train[y_train == 0]
+        X_train = pd.concat((neg_train, pos_train.iloc[:int(0.8 * len(pos_train))], neg_train))
+        y_train = np.array([0] * neg_train.shape[0] + [1] * pos_train.iloc[:int(0.8 * len(pos_train))].shape[0] + [0] * neg_train.shape[0])
+        del pos_train, neg_train
+
+        #pos_valid = X_valid[y_valid == 1]
+        #neg_valid = X_valid[y_valid == 0]
+        #X_valid = pd.concat((neg_valid, pos_valid.iloc[:int(0.8 * len(pos_valid))], neg_valid))
+        #y_valid = np.array(
+        #    [0] * neg_valid.shape[0] + [1] * pos_valid.iloc[:int(0.8 * len(pos_valid))].shape[0] + [0] * neg_valid.shape[0])
+        #del pos_valid, neg_valid
 
         cls = ensemble.ExtraTreesClassifier(n_jobs=-1, n_estimators=1024)
         cls.fit(X_train.values, y_train.values)
@@ -397,7 +494,7 @@ class RFLeakingModel_XTC(FoldDependent):
         valid_pred = cls.predict_proba(X_valid)[:, 1]
         print(colors.green | '{:s} == {:f}'.format(repr(self), score_data(y_valid, valid_pred)))
         print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=X_train.columns).sort_values()))
-        X_test = RF_LeakyXGB_Dataset().load('test', None, as_df=True)
+        X_test = RF_LeakyXGB_Dataset().load('test', None, as_df=True).fillna(-999).clip(-1000, 1000)
         test_pred = cls.predict_proba(X_test.values)[:, 1]
         np.savez_compressed(self.make_path('done_tmp.npz'), valid=valid_pred, test=test_pred)
         os.rename(self.make_path('done_tmp.npz'), self.output().path)

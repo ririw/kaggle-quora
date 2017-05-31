@@ -26,12 +26,13 @@ class Clipping(base.BaseEstimator, base.TransformerMixin):
     def transform(self, X):
         return X.clip(self.lower, self.upper)
 
+
 class SequenceTask(FoldDependent):
     def model(self, embedding_mat, seq_len, otherdata_size) -> keras.models.Model:
         raise NotImplementedError
 
     def _load(self, name, as_df):
-        res = np.load(self.output().path)[name]
+        res = np.load(self.output().path)[name].squeeze()
         if as_df:
             res = pandas.Series(res, name=repr(self))
         return res
@@ -57,6 +58,7 @@ class SequenceTask(FoldDependent):
         print(train_q1.shape, train_q2.shape, train_other.shape)
         embedding = rf_seq_data.RFWordSequenceDataset().load_embedding_mat()
 
+        np.random.seed(self.fold)
         model = self.model(embedding, train_q2.shape[1], train_other.shape[1])
 
         early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=6)
@@ -67,11 +69,11 @@ class SequenceTask(FoldDependent):
         train_data = [train_q1, train_q2, train_other]
 
         model.fit(
-           train_data, train_labels,
-           validation_split=0.05,
-           epochs=20, batch_size=batch_size, shuffle=True,
-           class_weight=dictweights,
-           callbacks=[early_stopping, slow_plateau, model_checkpointer])
+            train_data, train_labels,
+            validation_split=0.05,
+            epochs=20, batch_size=batch_size, shuffle=True,
+            class_weight=dictweights,
+            callbacks=[early_stopping, slow_plateau, model_checkpointer])
         model.load_weights(model_path)
 
         valid_q1, valid_q2, valid_other = rf_seq_data.RFWordSequenceDataset().load('valid', fold=self.fold)
@@ -79,8 +81,9 @@ class SequenceTask(FoldDependent):
         valid_labels = rf_dataset.Dataset().load('valid', fold=self.fold, as_df=True).is_duplicate
         valid_data = [valid_q1, valid_q2, valid_other]
         valid_preds = model.predict(valid_data, verbose=1, batch_size=batch_size)
+        valid_preds = np.clip(valid_preds, 1e-7, 1 - 1e-7)
 
-        score = score_data(valid_labels, valid_preds)
+        score = score_data(valid_labels.values, valid_preds)
         print(colors.green | "Score for {:s}: {:f}".format(repr(self), score))
 
         test_q1, test_q2, test_other = rf_seq_data.RFWordSequenceDataset().load('test', None)
@@ -173,10 +176,9 @@ class SiameseModel(SequenceTask):
         merged = keras.layers.Dropout(rate_drop_dense)(merged)
         merged = keras.layers.Dense(num_dense, activation='relu')(merged)
         merged = keras.layers.Dropout(rate_drop_dense)(merged)
-        merged = keras.layers.Dense(num_dense//2, activation='relu')(merged)
+        merged = keras.layers.Dense(num_dense // 2, activation='relu')(merged)
 
         preds = keras.layers.Dense(1, activation='sigmoid')(merged)
-        preds = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-10, 1-1e-10))(preds)
 
         model = keras.models.Model(inputs=[sequence_1_input, sequence_2_input, distance_input], outputs=preds)
         model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
@@ -229,7 +231,7 @@ class ReaderModel(SequenceTask):
         merged = keras.layers.BatchNormalization()(merged)
 
         merged = keras.layers.Dense(1, activation='sigmoid')(merged)
-        merged = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-10, 1-1e-10))(merged)
+        merged = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-8, 1 - 1e-8))(merged)
 
         model = keras.models.Model([sequence_1_input, sequence_2_input, distance_input], merged)
         model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
