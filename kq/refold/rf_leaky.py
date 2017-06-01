@@ -318,7 +318,7 @@ class RF_LeakyXGB_Dataset(FoldIndependent):
         with self.output().open('w'):
             pass
 
-
+## OPTIMIZE ME!
 class RFLeakingModel_XGB(FoldDependent):
     resources = {'cpu': 7}
 
@@ -340,7 +340,6 @@ class RFLeakingModel_XGB(FoldDependent):
         return luigi.LocalTarget(self.make_path('done.npz'))
 
     def run(self):
-        # 0.131986896169
         self.output().makedirs()
         X_train = RF_LeakyXGB_Dataset().load('train', self.fold, as_df=True)
         y_train = rf_dataset.Dataset().load('train', self.fold, as_df=True).is_duplicate
@@ -386,6 +385,7 @@ class RFLeakingModel_XGB(FoldDependent):
         os.rename(self.make_path('done_tmp.npz'), self.output().path)
 
 
+## OPTIMIZE ME!
 class RFLeakingModel_LGB(FoldDependent): # 0.147723
     resources = {'cpu': 7}
 
@@ -427,9 +427,8 @@ class RFLeakingModel_LGB(FoldDependent): # 0.147723
         #del pos_valid, neg_valid
 
         cls = lightgbm.sklearn.LGBMClassifier(
-            #n_estimators=3500,
-            n_estimators=512,
-            num_leaves=256,
+            n_estimators=2048,
+            num_leaves=1024,
             learning_rate=0.03,
             subsample=0.75
         )
@@ -442,7 +441,7 @@ class RFLeakingModel_LGB(FoldDependent): # 0.147723
         print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=X_train.columns).sort_values()))
 
         X_test = RF_LeakyXGB_Dataset().load('test', None, as_df=True).fillna(-999).clip(-1000, 1000)
-        test_pred = cls.predict_proba(X_test)
+        test_pred = cls.predict_proba(X_test)[:, 1]
 
         np.savez_compressed(self.make_path('done_tmp.npz'), valid=valid_pred, test=test_pred)
         os.rename(self.make_path('done_tmp.npz'), self.output().path)

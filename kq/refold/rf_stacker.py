@@ -1,24 +1,26 @@
 import gzip
 
 import hyperopt
+import lightgbm
 import luigi
 import nose.tools
 import numpy as np
 import os
 import pandas
 from plumbum import colors
-from sklearn import linear_model, preprocessing
+from sklearn import linear_model, preprocessing, pipeline
+from xgboost import XGBClassifier
 
 from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
 from kq.refold import rf_dataset, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn, \
-    rf_small_features, rf_keras, rf_naive_bayes, rf_leaky
+    rf_small_features, rf_keras, rf_naive_bayes, rf_leaky, AutoExitingGBMLike
 
 
 class Stacker(luigi.Task, HyperTuneable):
     npoly = TuneableHyperparam(
-        "Stacker_npoly", hyperopt.hp.randint('Stacker_npoly', 3), 1, transform=lambda x: x+1)
+        "Stacker_npoly", hyperopt.hp.randint('Stacker_npoly', 3), 2, transform=lambda x: x + 1)
 
     def requires(self):
         yield rf_dataset.Dataset()
@@ -44,8 +46,8 @@ class Stacker(luigi.Task, HyperTuneable):
             rf_small_features.SmallFeatureLogit(fold=fold),
             rf_small_features.SmallFeatureLGB(fold=fold),
             rf_small_features.SmallFeatureXGB(fold=fold),
-            #rf_keras.SiameseModel(fold=fold),
-            #rf_keras.ReaderModel(fold=fold),
+            rf_keras.SiameseModel(fold=fold),
+            rf_keras.ReaderModel(fold=fold),
             rf_naive_bayes.RF_NaiveBayes(fold=fold),
             rf_leaky.RFLeakingModel_XGB(fold=fold),
             rf_leaky.RFLeakingModel_LGB(fold=fold),
@@ -54,7 +56,7 @@ class Stacker(luigi.Task, HyperTuneable):
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_stacker',
-            'np_{:d}'.format(self.npoly.get()),
+            'xgb'
         )
         return (base_path + fname).get()
 
@@ -75,42 +77,45 @@ class Stacker(luigi.Task, HyperTuneable):
 
     def score(self):
         self.output().makedirs()
-        poly = preprocessing.PolynomialFeatures(self.npoly.get())
         train_Xs = []
         train_ys = []
         for fold in range(1, fold_max):
             y = rf_dataset.Dataset().load('valid', fold, as_df=True).is_duplicate.values.squeeze()
             x = self.fold_x(fold, 'valid')
+            #x = np.concatenate(x, [fold]*x.shape[0], 1)
             nose.tools.assert_equal(x.shape[0], y.shape[0])
             train_Xs.append(x)
             train_ys.append(y)
-
-        cls = linear_model.LogisticRegression(class_weight=core.dictweights)
-        cls.fit(train_Xs[0], train_ys[0])
-        print(pandas.Series(cls.coef_[0], index=train_Xs[0].columns))
-
-        train_X = poly.fit_transform(pandas.concat(train_Xs, 0).values)
+        train_X = pandas.concat(train_Xs, 0).values
         train_y = np.concatenate(train_ys, 0).squeeze()
 
-        cls = linear_model.LogisticRegression(class_weight=core.dictweights)
-        cls.fit(train_X, train_y)
+        cls = AutoExitingGBMLike(XGBClassifier(
+            n_estimators=1024,
+            learning_rate=0.03,
+            max_depth=7,
+            subsample=0.75
+        ), additional_fit_args={'verbose': False})
 
-        test_x = poly.transform(self.fold_x(0, 'valid'))
+        ds_names = [repr(d) for d in self.classifiers(0)]
+        cls.fit(train_X, train_y)
+        print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=ds_names).sort_values()))
+
+        test_x = self.fold_x(0, 'valid').values
         test_y = rf_dataset.Dataset().load('valid', 0, as_df=True).is_duplicate.values.squeeze()
 
-        score = core.score_data(test_y, cls.predict_proba(test_x))
-        return score, poly, cls
+        score = core.score_data(test_y, cls.predict_proba(test_x)[:, 1])
+        return score, cls
 
     def run(self):
-        #for c in self.classifiers(0):
+        # for c in self.classifiers(0):
         #    print(repr(c), c.load('test', 0).shape)
-        score, poly, cls = self.score()
+        score, cls = self.score()
 
         print(colors.green | colors.bold | (Stacker.__name__ + '::' + str(score)))
 
         preds = []
         for fold in range(fold_max):
-            test_X = poly.transform(self.fold_x(fold, 'test'))
+            test_X = self.fold_x(fold, 'test').values
             test_pred = cls.predict_proba(test_X)[:, 1]
             preds.append(test_pred)
         predmat = np.vstack(preds).mean(0)
@@ -119,5 +124,6 @@ class Stacker(luigi.Task, HyperTuneable):
         pred = pandas.Series(predmat, index=index, name='is_duplicate').to_frame()
         with gzip.open(self.make_path('stacked_pred.csv.gz.tmp'), 'wt') as f:
             pred.to_csv(f)
-        os.rename(self.make_path('stacked_pred.csv.gz.tmp'), self.make_path('stacked_pred.csv.gz'))
+        os.rename(self.make_path('stacked_pred.csv.gz.tmp'), self.output().path)
         return score
+

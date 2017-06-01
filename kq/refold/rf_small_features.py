@@ -1,9 +1,10 @@
 import hyperopt
+import luigi
 import pandas
 import nose.tools
 import numpy as np
 from plumbum import colors
-from sklearn import pipeline, preprocessing, linear_model, ensemble
+from sklearn import pipeline, preprocessing, linear_model, ensemble, neighbors
 import lightgbm.sklearn
 
 from kq import core
@@ -125,7 +126,7 @@ class SmallFeatureXTC(RF_SKLearn):
 
     def post_fit(self, cls):
         xs = SmallFeaturesTask().load('train', 0, as_df=True)
-        series = pandas.Series(cls.feature_importances_, index=xs.columns)
+        series = pandas.Series(cls.feature_importances_, index=xs.columns).sort_values(ascending=False)[:40]
         print(colors.yellow | str(series))
 
     def make_path(self, fname):
@@ -156,7 +157,7 @@ class SmallFeatureLGB(RF_SKLearn):
 
     def post_fit(self, cls):
         xs = SmallFeaturesTask().load('train', 0, as_df=True)
-        series = pandas.Series(cls.feature_importances_, index=xs.columns).sort_values(ascending=False)[:20]
+        series = pandas.Series(cls.feature_importances_, index=xs.columns).sort_values(ascending=False)[:40]
         print(colors.yellow | str(series))
 
     def xdataset(self) -> FoldIndependent:
@@ -191,14 +192,14 @@ class SmallFeatureXGB(RF_SKLearn):
     max_depth = hyper_helper.TuneableHyperparam(
         'SmallFeatureXGB.max_depth',
         prior=hyperopt.hp.randint('SmallFeatureXGB.max_depth', 11),
-        default=6,
+        default=8,
         transform=lambda v: v + 1,
         disable=False)
 
     learning_rate = hyper_helper.TuneableHyperparam(
         'SmallFeatureXGB.learning_rate',
         prior=hyperopt.hp.normal('SmallFeatureXGB.learning_rate', 0, 0.25),
-        default=.02,
+        default=.05,
         transform=np.abs,
         disable=False)
 
@@ -214,6 +215,11 @@ class SmallFeatureXGB(RF_SKLearn):
                 subsample=0.75)
         )
 
+    def post_fit(self, cls):
+        xs = SmallFeaturesTask().load('train', 0, as_df=True)
+        series = pandas.Series(cls.feature_importances_, index=xs.columns).sort_values(ascending=False)[:40]
+        print(colors.yellow | str(series))
+
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_small_feat',
@@ -222,3 +228,32 @@ class SmallFeatureXGB(RF_SKLearn):
             str(self.fold)
         )
         return (base_path + fname).get()
+
+
+class SmallFeaturesKNN(RF_SKLearn):
+    resources = {'cpu': 7, 'mem': 4}
+
+    k = hyper_helper.TuneableHyperparam(
+        'SmallFeaturesKNN.k',
+        prior=hyperopt.hp.randint('SmallFeaturesKNN.k', 30),
+        default=5,
+        transform=lambda v: v + 1,
+        disable=False
+    )
+
+    metric = luigi.Parameter()
+
+    def xdataset(self) -> FoldIndependent:
+        return SmallFeaturesTask()
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder(
+            'rf_small_feat',
+            'knn',
+            'k_{:d}_metric_{:s}'.format(self.k.get(), self.metric),
+            str(self.fold)
+        )
+        return (base_path + fname).get()
+
+    def make_cls(self):
+        return neighbors.KNeighborsClassifier(n_jobs=-1, n_neighbors=self.k.get(), metric=self.metric)

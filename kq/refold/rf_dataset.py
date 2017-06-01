@@ -6,14 +6,16 @@ import os.path
 
 import luigi
 import mmh3
+import nose.tools
 import numpy as np
 import pandas
 import re
 
-import spacy
+import networkx as nx
 from tqdm import tqdm
 
 from kq.feat_abhishek import FoldIndependent
+import kq.core
 
 __all__ = ['Dataset']
 
@@ -112,3 +114,118 @@ class Dataset(FoldIndependent):
 
         with self.output().open('w') as f:
             f.write('done')
+
+
+class GraphSynthesizingDataset(FoldIndependent):
+    """
+    Synthesize a dataset. Do so by:
+
+    - Writing all questions to a graph
+    - For each question:
+      - If label 1, create entries for all question descendents
+      - If label 0, create entries for all counter-question's descendents
+    - Also add in 25% random question pairings, marked as not related.
+    - This also builds out its own folds.
+    """
+
+    def _load_test(self, as_df):
+        return Dataset().load_all('test', as_df=True)
+
+    def _load(self, as_df):
+        pass
+
+    def requires(self):
+        yield Dataset()
+
+    def output(self):
+        return luigi.LocalTarget('./rf_cache/synth_dataset/done')
+
+    def run(self):
+        train_data = Dataset().load_all('train', as_df=True)
+        question_text = [(qid, qtext) for qid, qtext in zip(train_data.qid1, train_data.question1)] + \
+                        [(qid, qtext) for qid, qtext in zip(train_data.qid2, train_data.question2)]
+        question_text = dict(question_text)
+
+        train_graph = nx.Graph()
+        gid_counter = 0
+        # Build a bipartite graph of questions
+        q_iter = zip(train_data.qid1, train_data.qid2, train_data.is_duplicate)
+        for qid1, qid2, is_dup in tqdm(q_iter, total=train_data.shape[0], desc='Reading data into graph'):
+            if is_dup:
+                if qid1 in train_graph and qid2 in train_graph:
+                    if qid1 in set(nx.descendants(train_graph, qid2)):
+                        continue
+                    else:
+                        gid = nx.neighbors(train_graph, qid1)[0]
+                        assert gid.startswith('g_')
+                        train_graph.add_edge(qid1, gid)
+                if qid1 not in train_graph and qid2 not in train_graph:
+                    gid = 'g_' + str(gid_counter)
+                    gid_counter += 1
+                    train_graph.add_edge(qid1, gid)
+                    train_graph.add_edge(qid2, gid)
+                if qid1 in train_graph:
+                    gid = nx.neighbors(train_graph, qid1)[0]
+                    assert gid.startswith('g_')
+                    train_graph.add_edge(qid2, gid)
+                if qid2 in train_graph:
+                    gid = nx.neighbors(train_graph, qid2)[0]
+                    assert gid.startswith('g_')
+                    train_graph.add_edge(qid1, gid)
+            else:
+                if qid1 not in train_graph:
+                    gid = 'g_' + str(gid_counter)
+                    train_graph.add_edge(qid1, gid)
+                    gid_counter += 1
+                if qid2 not in train_graph:
+                    gid = 'g_' + str(gid_counter)
+                    train_graph.add_edge(qid2, gid)
+                    gid_counter += 1
+
+        synthetic_rows = {}
+        dups_counts = np.asarray([0, 0])
+
+        q_iter = zip(train_data.qid1, train_data.qid2, train_data.is_duplicate)
+        for qid1, qid2, is_dup in tqdm(q_iter, total=train_data.shape[0], desc='Building synthetic data'):
+            g1 = nx.neighbors(train_graph, qid1)[0]
+            g2 = nx.neighbors(train_graph, qid2)[0]
+            nose.tools.assert_is_instance(g1, str)
+            nose.tools.assert_is_instance(g2, str)
+            all_q1s = [qid for qid in nx.descendants(train_graph, g1) if not isinstance(qid, str)]
+            all_q2s = [qid for qid in nx.descendants(train_graph, g2) if not isinstance(qid, str)]
+
+            for qid1 in all_q1s:
+                for qid2 in all_q2s:
+                    if qid1 != qid2 and (qid1, qid2) not in synthetic_rows:
+                        synthetic_rows[(qid1, qid2)] = {
+                            'qid1': qid1,
+                            'qid2': qid2,
+                            'question1': question_text[qid1],
+                            'question2': question_text[qid2],
+                            'is_duplicate': is_dup
+                        }
+                        dups_counts[is_dup] += 1
+
+        qids = np.asarray([v for v in question_text.keys()])
+        n_required_to_balance = int(kq.core.weights[0] * dups_counts[1] / kq.core.weights[1] - dups_counts[0])
+        for _ in tqdm(range(n_required_to_balance), desc='Building random pairs data'):
+            qid1 = 0
+            qid2 = 0
+            while (qid1, qid2) in synthetic_rows or qid1 == qid2:
+                qid1 = np.random.choice(qids)
+                qid2 = np.random.choice(qids)
+            synthetic_rows[(qid1, qid2)] = {
+                'qid1': qid1,
+                'qid2': qid2,
+                'question1': question_text[qid1],
+                'question2': question_text[qid2],
+                'is_duplicate': 0
+            }
+            dups_counts[0] += 1
+
+        for q1, q2 in zip(train_data.qid1, train_data.qid2):
+            assert (q1, q2) in synthetic_rows
+
+        print('Synthetic', dups_counts / dups_counts.sum())
+        print('Real     ', kq.core.weights / kq.core.weights.sum())
+        print(train_data.shape[0])
