@@ -1,8 +1,10 @@
 import hyperopt
-import luigi
+import keras
+import tensorflow as tf
 import pandas
 import nose.tools
 import numpy as np
+from keras.wrappers.scikit_learn import KerasClassifier
 from plumbum import colors
 from sklearn import pipeline, preprocessing, linear_model, ensemble, neighbors
 import lightgbm.sklearn
@@ -13,7 +15,7 @@ from kq.refold import rf_dataset, rf_decomposition, rf_distances, rf_vectorspace
     AutoExitingGBMLike, rf_magic_features, rf_word_count_features, rf_word_count_distances, rf_leaky, rf_pos_distances
 from kq.refold.rf_sklearn import RF_SKLearn
 
-__all__ = ['SmallFeatureLogit', 'SmallFeatureXTC', 'SmallFeatureLGB']
+__all__ = ['SmallFeatureLogit', 'SmallFeatureXTC', 'SmallFeatureLGB', 'SmallFeaturesKeras', 'SmallFeatureXGB']
 
 
 class SmallFeaturesTask(FoldIndependent):
@@ -230,18 +232,8 @@ class SmallFeatureXGB(RF_SKLearn):
         return (base_path + fname).get()
 
 
-class SmallFeaturesKNN(RF_SKLearn):
-    resources = {'cpu': 7, 'mem': 4}
-
-    k = hyper_helper.TuneableHyperparam(
-        'SmallFeaturesKNN.k',
-        prior=hyperopt.hp.randint('SmallFeaturesKNN.k', 30),
-        default=5,
-        transform=lambda v: v + 1,
-        disable=False
-    )
-
-    metric = luigi.Parameter()
+class SmallFeaturesKeras(RF_SKLearn):
+    resources = {'gpu': 1}
 
     def xdataset(self) -> FoldIndependent:
         return SmallFeaturesTask()
@@ -249,11 +241,37 @@ class SmallFeaturesKNN(RF_SKLearn):
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_small_feat',
-            'knn',
-            'k_{:d}_metric_{:s}'.format(self.k.get(), self.metric),
+            'keras',
             str(self.fold)
         )
         return (base_path + fname).get()
 
+    def simple_nn(self):
+        f = SmallFeaturesTask()
+        n_inputs = f.load('train', 0).shape[1]
+        m = keras.models.Sequential()
+        m.add(keras.layers.Dense(n_inputs, input_shape=[n_inputs]))
+        m.add(keras.layers.PReLU())
+        m.add(keras.layers.Dropout(0.5))
+        m.add(keras.layers.Dense(n_inputs * 4))
+        m.add(keras.layers.PReLU())
+        m.add(keras.layers.Dropout(0.5))
+        m.add(keras.layers.Dense(n_inputs * 4))
+        m.add(keras.layers.PReLU())
+        m.add(keras.layers.Dense(1, activation='sigmoid'))
+        m.add(keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-8, 1 - 1e-8)))
+
+        m.compile('adam', 'binary_crossentropy')
+
+        return m
+
+
     def make_cls(self):
-        return neighbors.KNeighborsClassifier(n_jobs=-1, n_neighbors=self.k.get(), metric=self.metric)
+        model = KerasClassifier(build_fn=self.simple_nn,
+                                epochs=10,
+                                batch_size=128,
+                                validation_split=0.05,
+                                verbose=1)
+        return pipeline.Pipeline([
+            ('norm', preprocessing.StandardScaler()),
+            ('keras', model)])

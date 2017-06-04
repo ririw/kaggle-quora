@@ -13,8 +13,19 @@ from xgboost.sklearn import XGBClassifier
 from kq.core import score_data, dictweights
 from kq.feat_abhishek import fold_max
 from kq.refold import rf_dataset, BaseTargetBuilder, rf_wc_sklearn, \
-    AutoExitingGBMLike, rf_ab_sklearn, rf_small_features, rf_naive_bayes, rf_leaky, rf_keras
+    AutoExitingGBMLike, rf_ab_sklearn, rf_small_features, rf_naive_bayes, rf_leaky, rf_keras, rf_all_features
 
+class FeatureMean:
+    def fit(self, X, y):
+        return self
+
+    def transform(self, X):
+        return X.mean(1)
+
+    def predict_proba(self, X):
+        m = X.mean(1)
+        res = np.vstack([1-m, m]).T
+        return res
 
 class ReStacker(luigi.Task):
     def requires(self):
@@ -44,9 +55,12 @@ class ReStacker(luigi.Task):
             rf_small_features.SmallFeatureXGB(fold=fold),
             rf_keras.SiameseModel(fold=fold),
             rf_keras.ReaderModel(fold=fold),
+            rf_keras.ConcurrentReaderModel(fold=fold),
             rf_naive_bayes.RF_NaiveBayes(fold=fold),
             rf_leaky.RFLeakingModel_XGB(fold=fold),
             rf_leaky.RFLeakingModel_LGB(fold=fold),
+            rf_all_features.AllFeatureLGB(fold=fold),
+            rf_all_features.AllFeatureXGB(fold=fold),
         ]
 
     def make_path(self, fname):
@@ -74,30 +88,33 @@ class ReStacker(luigi.Task):
 
     @staticmethod
     def classifiers():
+        #yield FeatureMean()
         yield AutoExitingGBMLike(XGBClassifier(
             n_estimators=1024,
-            learning_rate=0.05,
-            max_depth=6,
-            subsample=0.75
+            learning_rate=0.02,
+            max_depth=7,
+            subsample=0.5
         ), additional_fit_args={'verbose': False})
-        yield AutoExitingGBMLike(lightgbm.LGBMClassifier(
-            num_leaves=1024,
-            subsample=0.75,
-            n_estimators=1024,
-            learning_rate=0.05),
-            additional_fit_args={'verbose': False})
-        yield ensemble.ExtraTreesClassifier(n_estimators=512,
-                                            min_samples_leaf=5,
-                                            n_jobs=-1)
-
-        #yield svm.SVC()
+        #yield AutoExitingGBMLike(lightgbm.LGBMClassifier(
+        #    num_leaves=512,
+        #    subsample=0.5,
+        #    n_estimators=1024,
+        #    learning_rate=0.02),
+        #    additional_fit_args={'verbose': False})
+        #yield pipeline.Pipeline([
+        #   ('poly', preprocessing.PolynomialFeatures(2)),
+        #   ('lin', linear_model.LogisticRegression(C=10, class_weight=dictweights))
+        #])
 
     def run(self):
         self.output().makedirs()
         fold_ord = np.random.permutation(fold_max)
+
         merge_fold = fold_ord[0]
         test_fold = fold_ord[1]
         stack_folds = fold_ord[2:]
+
+        print(colors.red | 'Fold order: {}/{}/{}'.format(merge_fold, test_fold, stack_folds))
 
         stack_Xs = [self.fold_x(f, 'valid') for f in stack_folds]
         stack_ys = [self.fold_y(f, 'valid') for f in stack_folds]
@@ -115,11 +132,14 @@ class ReStacker(luigi.Task):
         for cls in classifiers:
             print(colors.blue | colors.bold | "Training {:s}".format(repr(cls)))
             cls.fit(stack_X, stack_y)
-            print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=ds_names).sort_values()))
+            if hasattr(cls, 'feature_importances_'):
+                print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=ds_names).sort_values()))
             test_pred = cls.predict_proba(test_X)[:, 1]
             merge_pred = cls.predict_proba(merge_X)[:, 1]
             score = score_data(test_y, test_pred)
+            test_score = score_data(test_y, test_pred)
             print(colors.yellow | 'Score: {:f}'.format(score))
+            print(colors.green | 'score: {:f}'.format(test_score))
 
             merge_preds.append(merge_pred)
             test_preds.append(test_pred)
@@ -130,17 +150,15 @@ class ReStacker(luigi.Task):
         #merge_cls = AutoExitingGBMLike(XGBClassifier(
         #    n_estimators=1024,
         #    learning_rate=0.05,
-        #    max_depth=6,
-        #    subsample=0.75
+        #    max_depth=4,
+        #    subsample=0.5
         #), additional_fit_args={'verbose': False})
-        merge_cls = pipeline.Pipeline([
-            ('poly', preprocessing.PolynomialFeatures(3)),
-            ('cls',  linear_model.LogisticRegression())
-        ])
+        merge_cls = FeatureMean()
 
         merge_cls.fit(merge_pred, merge_y)
 
-        test_score = score_data(test_y, merge_cls.predict_proba(test_pred)[:, 1])
+        test_pred = merge_cls.predict_proba(test_pred)[:, 1]
+        test_score = score_data(test_y, test_pred)
         print(colors.green | 'Final score: {:f}'.format(test_score))
 
         fold_preds = []

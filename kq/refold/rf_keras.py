@@ -12,7 +12,12 @@ from kq.core import dictweights, score_data
 from kq.feat_abhishek import FoldDependent
 from kq.refold import rf_seq_data, rf_dataset, BaseTargetBuilder
 
-__all__ = ['ReaderModel', 'SiameseModel', 'SequenceTask', 'TestModel']
+__all__ = ['ReaderModel',
+           'ConcurrentReaderModel',
+           'ConcurrentNoDistReaderModel',
+           'ReaderNoDistModel',
+           'SiameseModel',
+           'SiameseNoDistModel']
 
 
 class Clipping(base.BaseEstimator, base.TransformerMixin):
@@ -28,6 +33,9 @@ class Clipping(base.BaseEstimator, base.TransformerMixin):
 
 
 class SequenceTask(FoldDependent):
+    def include_distances(self):
+        return True
+
     def model(self, embedding_mat, seq_len, otherdata_size) -> keras.models.Model:
         raise NotImplementedError
 
@@ -66,7 +74,10 @@ class SequenceTask(FoldDependent):
         model_path = self.make_path('model.h5')
         model_checkpointer = keras.callbacks.ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True)
 
-        train_data = [train_q1, train_q2, train_other]
+        if self.include_distances():
+            train_data = [train_q1, train_q2, train_other]
+        else:
+            train_data = [train_q1, train_q2]
 
         model.fit(
             train_data, train_labels,
@@ -79,7 +90,11 @@ class SequenceTask(FoldDependent):
         valid_q1, valid_q2, valid_other = rf_seq_data.RFWordSequenceDataset().load('valid', fold=self.fold)
         valid_other = normalizer.transform(valid_other)
         valid_labels = rf_dataset.Dataset().load('valid', fold=self.fold, as_df=True).is_duplicate
-        valid_data = [valid_q1, valid_q2, valid_other]
+        if self.include_distances():
+            valid_data = [valid_q1, valid_q2, valid_other]
+        else:
+            valid_data = [valid_q1, valid_q2]
+
         valid_preds = model.predict(valid_data, verbose=1, batch_size=batch_size)
         valid_preds = np.clip(valid_preds, 1e-7, 1 - 1e-7)
 
@@ -88,7 +103,11 @@ class SequenceTask(FoldDependent):
 
         test_q1, test_q2, test_other = rf_seq_data.RFWordSequenceDataset().load('test', None)
         test_other = normalizer.transform(test_other)
-        test_data = [test_q1, test_q2, test_other]
+        if self.include_distances():
+            test_data = [test_q1, test_q2, test_other]
+        else:
+            test_data = [test_q1, test_q2]
+
         test_preds = model.predict(test_data, verbose=1, batch_size=batch_size)
 
         np.savez_compressed(self.make_path('done_tmp.npz'), valid=valid_preds, test=test_preds)
@@ -234,6 +253,202 @@ class ReaderModel(SequenceTask):
         merged = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-8, 1 - 1e-8))(merged)
 
         model = keras.models.Model([sequence_1_input, sequence_2_input, distance_input], merged)
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
+
+        return model
+
+
+class ConcurrentReaderModel(SequenceTask):
+    resources = {'gpu': 1}
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder(
+            'rf_keras',
+            'smaller_reader',
+            str(self.fold)
+        )
+        return (base_path + fname).get()
+
+    def model(self, embedding_matrix, vec_len, distance_width) -> keras.models.Model:
+        num_lstm = np.random.randint(250, 400)
+        num_dense = np.random.randint(100, 150)
+        rate_drop_lstm = 0.15 + np.random.rand() * 0.25
+        rate_drop_dense = 0.15 + np.random.rand() * 0.25
+
+        embedding_layer = keras.layers.Embedding(
+            embedding_matrix.shape[0], embedding_matrix.shape[1],
+            weights=[embedding_matrix], input_length=vec_len, trainable=False)
+
+        lstm_layer1 = keras.layers.Bidirectional(
+            keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+        )
+
+        sequence_1_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        sequence_2_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        x1 = embedding_layer(sequence_1_input)
+        x2 = embedding_layer(sequence_2_input)
+        x1x2 = keras.layers.concatenate([x1, x2], axis=2)
+        l1 = lstm_layer1(x1x2)
+
+        distance_input = keras.layers.Input(shape=[distance_width])
+        di = keras.layers.Dense(num_dense, activation='relu')(distance_input)
+        di = keras.layers.Dropout(rate_drop_dense)(di)
+        di = keras.layers.BatchNormalization()(di)
+
+        di = keras.layers.Dense(num_dense, activation='relu')(di)
+        di = keras.layers.Dropout(rate_drop_dense)(di)
+        di = keras.layers.BatchNormalization()(di)
+
+        merged = keras.layers.concatenate([l1, di])
+        merged = keras.layers.Dropout(rate_drop_dense)(merged)
+        merged = keras.layers.BatchNormalization()(merged)
+
+        merged = keras.layers.Dense(1, activation='sigmoid')(merged)
+        merged = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-8, 1 - 1e-8))(merged)
+
+        model = keras.models.Model([sequence_1_input, sequence_2_input, distance_input], merged)
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
+
+        return model
+
+
+class ConcurrentNoDistReaderModel(SequenceTask):
+    resources = {'gpu': 1}
+
+    def include_distances(self): return False
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder(
+            'rf_keras',
+            'smaller_reader_nodist',
+            str(self.fold)
+        )
+        return (base_path + fname).get()
+
+    def model(self, embedding_matrix, vec_len, distance_width) -> keras.models.Model:
+        num_lstm = np.random.randint(250, 400)
+        num_dense = np.random.randint(100, 150)
+        rate_drop_lstm = 0.15 + np.random.rand() * 0.25
+        rate_drop_dense = 0.15 + np.random.rand() * 0.25
+
+        embedding_layer = keras.layers.Embedding(
+            embedding_matrix.shape[0], embedding_matrix.shape[1],
+            weights=[embedding_matrix], input_length=vec_len, trainable=False)
+
+        lstm_layer1 = keras.layers.Bidirectional(
+            keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+        )
+
+        sequence_1_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        sequence_2_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        x1 = embedding_layer(sequence_1_input)
+        x2 = embedding_layer(sequence_2_input)
+        x1x2 = keras.layers.concatenate([x1, x2], axis=2)
+        l1 = lstm_layer1(x1x2)
+
+        merged = l1
+        merged = keras.layers.Dropout(rate_drop_dense)(merged)
+        merged = keras.layers.Dense(num_lstm // 2, activation='relu')(merged)
+
+        merged = keras.layers.Dense(1, activation='sigmoid')(merged)
+        merged = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-8, 1 - 1e-8))(merged)
+
+        model = keras.models.Model([sequence_1_input, sequence_2_input], merged)
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
+
+        return model
+
+
+class ReaderNoDistModel(SequenceTask):
+    resources = {'gpu': 1}
+
+    def include_distances(self): return False
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder(
+            'rf_keras',
+            'reader_nodist',
+            str(self.fold)
+        )
+        return (base_path + fname).get()
+
+    def model(self, embedding_matrix, vec_len, distance_width) -> keras.models.Model:
+        num_lstm = np.random.randint(250, 400)
+        num_dense = np.random.randint(100, 150)
+        rate_drop_lstm = 0.15 + np.random.rand() * 0.25
+        rate_drop_dense = 0.15 + np.random.rand() * 0.25
+
+        embedding_layer = keras.layers.Embedding(
+            embedding_matrix.shape[0], embedding_matrix.shape[1],
+            weights=[embedding_matrix], input_length=vec_len * 2, trainable=False)
+
+        lstm_layer1 = keras.layers.Bidirectional(
+            keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+        )
+
+        sequence_1_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        sequence_2_input = keras.layers.Input(shape=[vec_len], dtype='int32')
+        x1x2 = keras.layers.concatenate([sequence_1_input, sequence_2_input])
+        embed = embedding_layer(x1x2)
+        l1 = lstm_layer1(embed)
+        merged = l1
+        merged = keras.layers.Dropout(rate_drop_dense)(merged)
+        merged = keras.layers.Dense(num_lstm // 2, activation='relu')(merged)
+
+        merged = keras.layers.Dense(1, activation='sigmoid')(merged)
+        merged = keras.layers.Lambda(lambda v: tf.clip_by_value(v, 1e-8, 1 - 1e-8))(merged)
+
+        model = keras.models.Model([sequence_1_input, sequence_2_input], merged)
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
+
+        return model
+
+
+class SiameseNoDistModel(SequenceTask):
+    resources = {'gpu': 1}
+
+    def include_distances(self): return False
+
+    def make_path(self, fname):
+        base_path = BaseTargetBuilder(
+            'rf_keras',
+            'siamese_nodist',
+            str(self.fold)
+        )
+        return (base_path + fname).get()
+
+    def model(self, embedding_mat, seq_len, otherdata_size) -> keras.models.Model:
+        num_lstm = np.random.randint(175, 275)
+        num_dense = np.random.randint(100, 150)
+        rate_drop_lstm = 0.15 + np.random.rand() * 0.25
+        rate_drop_dense = 0.15 + np.random.rand() * 0.25
+
+        embedding_layer = keras.layers.Embedding(
+            embedding_mat.shape[0],
+            embedding_mat.shape[1],
+            weights=[embedding_mat], input_length=seq_len, trainable=False)
+
+        lstm_layer1 = keras.layers.Bidirectional(
+            keras.layers.LSTM(num_lstm, dropout=rate_drop_lstm, recurrent_dropout=rate_drop_lstm)
+        )
+
+        sequence_1_input = keras.layers.Input(shape=[seq_len], dtype='int32')
+        embed_1 = embedding_layer(sequence_1_input)
+        x1 = lstm_layer1(embed_1)
+
+        sequence_2_input = keras.layers.Input(shape=[seq_len], dtype='int32')
+        embed_2 = embedding_layer(sequence_2_input)
+        y1 = lstm_layer1(embed_2)
+
+        merged = keras.layers.concatenate([x1, y1])
+        merged = keras.layers.Dropout(rate_drop_dense)(merged)
+        merged = keras.layers.Dense(num_dense, activation='relu')(merged)
+        merged = keras.layers.Dropout(rate_drop_dense)(merged)
+        merged = keras.layers.Dense(num_dense // 2, activation='relu')(merged)
+
+        preds = keras.layers.Dense(1, activation='sigmoid')(merged)
+
+        model = keras.models.Model(inputs=[sequence_1_input, sequence_2_input], outputs=preds)
         model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['acc'])
 
         return model

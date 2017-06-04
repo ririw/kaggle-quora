@@ -1,21 +1,26 @@
 import gzip
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 import hyperopt
-import lightgbm
+import seaborn as sns
 import luigi
 import nose.tools
 import numpy as np
 import os
 import pandas
 from plumbum import colors
-from sklearn import linear_model, preprocessing, pipeline
+from sklearn import linear_model, preprocessing, pipeline, svm, feature_selection
 from xgboost import XGBClassifier
 
+import keras
+import keras.wrappers.scikit_learn
 from kq import core
 from kq.feat_abhishek import HyperTuneable, fold_max
 from kq.feat_abhishek.hyper_helper import TuneableHyperparam
 from kq.refold import rf_dataset, BaseTargetBuilder, rf_ab_sklearn, rf_wc_sklearn, \
-    rf_small_features, rf_keras, rf_naive_bayes, rf_leaky, AutoExitingGBMLike
+    rf_small_features, rf_keras, rf_naive_bayes, rf_leaky, AutoExitingGBMLike, rf_all_features
 
 
 class Stacker(luigi.Task, HyperTuneable):
@@ -46,17 +51,23 @@ class Stacker(luigi.Task, HyperTuneable):
             rf_small_features.SmallFeatureLogit(fold=fold),
             rf_small_features.SmallFeatureLGB(fold=fold),
             rf_small_features.SmallFeatureXGB(fold=fold),
+            rf_small_features.SmallFeaturesKeras(fold=fold),
             rf_keras.SiameseModel(fold=fold),
             rf_keras.ReaderModel(fold=fold),
+            rf_keras.ConcurrentReaderModel(fold=fold),
+            rf_keras.SiameseNoDistModel(fold=fold),
+            rf_keras.ReaderNoDistModel(fold=fold),
+            rf_keras.ConcurrentNoDistReaderModel(fold=fold),
             rf_naive_bayes.RF_NaiveBayes(fold=fold),
             rf_leaky.RFLeakingModel_XGB(fold=fold),
             rf_leaky.RFLeakingModel_LGB(fold=fold),
+            rf_all_features.AllFeatureXGB(fold=fold),
+            rf_all_features.AllFeatureLGB(fold=fold),
         ]
 
     def make_path(self, fname):
         base_path = BaseTargetBuilder(
             'rf_stacker',
-            'xgb'
         )
         return (base_path + fname).get()
 
@@ -75,6 +86,21 @@ class Stacker(luigi.Task, HyperTuneable):
         res = np.vstack(xs).T
         return pandas.DataFrame(res, columns=[c.__class__.__name__ for c in self.classifiers(fold)])
 
+    def simple_nn(self):
+        n_inputs = len(self.classifiers(0))
+        m = keras.models.Sequential()
+        m.add(keras.layers.Dense(n_inputs, input_shape=[n_inputs]))
+        m.add(keras.layers.PReLU())
+        m.add(keras.layers.Dropout(0.5))
+        m.add(keras.layers.Dense(n_inputs * 2))
+        m.add(keras.layers.PReLU())
+        m.add(keras.layers.Dropout(0.5))
+        m.add(keras.layers.Dense(1, activation='sigmoid'))
+        m.compile('adam', 'binary_crossentropy')
+
+        return m
+
+    @property
     def score(self):
         self.output().makedirs()
         train_Xs = []
@@ -82,23 +108,41 @@ class Stacker(luigi.Task, HyperTuneable):
         for fold in range(1, fold_max):
             y = rf_dataset.Dataset().load('valid', fold, as_df=True).is_duplicate.values.squeeze()
             x = self.fold_x(fold, 'valid')
-            #x = np.concatenate(x, [fold]*x.shape[0], 1)
             nose.tools.assert_equal(x.shape[0], y.shape[0])
             train_Xs.append(x)
             train_ys.append(y)
+        sns.clustermap(pandas.concat(train_Xs, 0).corr())
+        plt.yticks(rotation=90)
+        plt.savefig('./corr.png')
+        plt.close()
         train_X = pandas.concat(train_Xs, 0).values
         train_y = np.concatenate(train_ys, 0).squeeze()
 
         cls = AutoExitingGBMLike(XGBClassifier(
             n_estimators=1024,
-            learning_rate=0.03,
-            max_depth=7,
-            subsample=0.75
+            learning_rate=0.05,
+            max_depth=8,
+            gamma=1,
+            subsample=0.5
         ), additional_fit_args={'verbose': False})
 
-        ds_names = [repr(d) for d in self.classifiers(0)]
+        #cls = AutoExitingGBMLike(lightgbm.sklearn.LGBMClassifier(
+        #    n_estimators=1024,
+        #    learning_rate=0.01,
+        #    subsample=0.5,
+        #    num_leaves=2048
+        #), additional_fit_args={'verbose': False})
+        #cls = pipeline.Pipeline([
+        #    ('poly', preprocessing.PolynomialFeatures(2)),
+        #    ('anova', feature_selection.SelectPercentile(feature_selection.f_classif)),
+        #    ('lin', linear_model.LogisticRegression(C=1, class_weight=core.dictweights))
+        #])
+        #cls = keras.wrappers.scikit_learn.KerasClassifier(build_fn=self.simple_nn)
+
         cls.fit(train_X, train_y)
-        print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=ds_names).sort_values()))
+        if hasattr(cls, 'feature_importances_'):
+            ds_names = [repr(d) for d in self.classifiers(0)]
+            print(colors.yellow | str(pandas.Series(cls.feature_importances_, index=ds_names).sort_values()))
 
         test_x = self.fold_x(0, 'valid').values
         test_y = rf_dataset.Dataset().load('valid', 0, as_df=True).is_duplicate.values.squeeze()
@@ -109,7 +153,7 @@ class Stacker(luigi.Task, HyperTuneable):
     def run(self):
         # for c in self.classifiers(0):
         #    print(repr(c), c.load('test', 0).shape)
-        score, cls = self.score()
+        score, cls = self.score
 
         print(colors.green | colors.bold | (Stacker.__name__ + '::' + str(score)))
 
